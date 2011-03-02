@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<!-- saved from url=(0048)http://www.cs.cmu.edu/~perspectives/firefox.html -->
+<HTML lang=en xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"><HEAD><TITLE>Perspectives : Firefox Extension</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=gb2312"><LINK 
+href="Perspectives%20%20Firefox%20Extension_files/style.css" type=text/css 
+rel=stylesheet>
+<SCRIPT type=text/javascript>
+var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</SCRIPT>
+
+<SCRIPT type=text/javascript>
+var pageTracker = _gat._getTracker("UA-5335740-1");
+pageTracker._trackPageview();
+</SCRIPT>
+
+<SCRIPT type=application/x-javascript>
+<!--
+function install (){
+  var params = {
+    "Install Perspectives": { URL: "Perspectives.xpi",
+      toString: function () {
+        return this.URL; }
+    }
+  };
+  InstallTrigger.install(params);
+
+  return false;
+}
+-->
+</SCRIPT>
+
+<META content="MSHTML 6.00.6000.16788" name=GENERATOR></HEAD>
+<BODY>
+<CENTER>
+<TABLE width="100%">
+  <TBODY>
+  <TR>
+    <TD width="25%"><A href="http://www.cs.cmu.edu/~perspectives/">
+      <DIV class=quick_link>Perspectives中文主页</DIV></A></TD>
+    <TD width="25%"><A 
+href="http://www.cs.cmu.edu/~perspectives/firefox.html">
+      <DIV class=quick_link>火狐插件</DIV></A></TD>
+    <TD width="25%"><A 
+href="http://www.cs.cmu.edu/~perspectives/openssh.html">
+      <DIV class=quick_link>OpenSSH客户端（英文版）</DIV></A></TD>
+    <TD width="25%"><A href="http://moo.cmcl.cs.cmu.edu/perspectives/">
+      <DIV class=quick_link>演示（英文版）</DIV></A></TD></TR></TBODY></TABLE><BR><IMG 
+src="Perspectives%20%20Firefox%20Extension_files/download.htm"> 
+<H4></H4></CENTER>
+<H1 style="TEXT-ALIGN: center">Perspectives : Mozilla 火狐插件</H1>
+<H2>概述</H2>
+<P>我们为流行的火狐浏览器开发了一个插件。该插件会在您连接HTTPS站点时联系认证服务器。
+<P>对于Perspectives怎样工作，您可以浏览我们的
+<A href="http://www.cs.cmu.edu/~perspectives/index.html">Perspectives主页</A>。 
+<P>该插件主要提供两项功能：</P>
+<OL>
+  <LI>如果您连接一个不可信的主页（例如使用自分配的认证），火狐将会给您一个十分两人讨厌的安全错误，并强迫您人工的安装一个“异常”。Perspectives能够检测自分配的认真是否可用，并且如果足够安全的话，Perspectives能帮助<B>自动的跳过这些安全错误页面</B>。 
+  <LI>完全有可能一个黑客欺骗火狐信任的许多认证机构中的一个，并使之对一个可以信任的主页使用不正确的认证。在这种情况下，Perspectives能够检测攻击。并且如果发现任何可疑的事件，Perspectives会给您警告。</LI></OL>
+<P>* 如果HTTPS站点认证过期，或者域名不匹配（例如www.gmail.com使用了mail.google.com的认证），同样适用。</P>
+<A name=install>
+<H2>安装 </H2>
+<P>请注意：该主页的所有软件不提供任何保证。在任何情况下，软件作者和Carnegie Mellon大学都不为使用该软件产生的任何结果承担法律责任。
+<P>软件源代码可<A href="http://www.cs.cmu.edu/~perspectives/firefox.html#source">免费下载</A>。
+下面的链接能够安装Perspectives，支持的平台包括Linux (32-bit/64-bit)，Windows，and OS X (Intel/PPC)：
+<BR>
+<CENTER><A onclick="return install();" 
+href="http://www.cs.cmu.edu/~perspectives/Perspectives.xpi" 
+addonName="Perspectives" iconURL="install_icon.png">安装Perspectives</A> 
+</CENTER>
+<P></P>
+<P>
+<UL>
+  <LI>请看下面的<A href="http://www.cs.cmu.edu/~perspectives/firefox.html#knownissues">使用需知</A>。
+  <LI>在默认情况下，火狐会阻止安装，并在您窗口的上方显示一个警告、您必须跳过该警告。
+  <LI>该插件仅支持<A href="http://www.getfirefox.com/">火狐 3.0 </A>或更高版本。 </LI></UL>
+
+<H2>使用方法</H2>
+<P>Perspectives在您浏览器窗口的右下角提供了一个小的信息图标。通过该图标您可以看到认证客户端插件的工作。该图标会告诉您该认证是否被确认，并且通过该图标您能够查看对于每一个服务器反馈的详细信息。双击这个信息图标，您可以得到详细的认证信息，并能打开配置菜单。</P>
+<P> 默认情况，Perspectives仅仅对“自分配认证”和火狐认为不可用的认证询问认证服务器。您能改变配置选项，对于所有HTTPS链接询问认证服务器。配置选项还能够让您控制安全级别，该安全级别决定由Perspectives使用的确认认证是否可用的标准。</P>
+<P>Perspectives会在本地保存“可信”认证的认证数据。您可以配置Perspectives，使Perspectives永久保存这些数据或者只当前保存（默认设置）。</P>
+<P>Perspectives能够通过自动更新来修复软件中的错误，更新特性和认证配置数据。如果您在使用中遇到问题，请确认您使用最新版本（通过“工具”，“附加组件”，“查找更新”进行更新），并在更新可用时安装更新。</P>
+<P>请看Perspectives火狐<A href="http://www.cs.cmu.edu/~perspectives/firefox_help.html">帮助页面</A>。</P>
+<A name=knownissues>
+<H2>使用需知： </H2>
+<OL>
+  <LI>如果您的局域网使用<B>代理或者防火墙</B>来连接因特网，代理或者防火墙有可能阻止Perspectives连接认证服务器，从而导致所有的主页认证都失败(<A href="http://www.cs.cmu.edu/~perspectives/index.html#firewall">详细信息</A>)。
+  <A name=nossl>
+  <LI> 当询问认证服务器时，如果您遇到下面的信息："Perspectives component (@cs.cmu.edu/Perspectives;1) not installed correctly. Please report 
+  information about your platform to developers", pleases visit 请访问<A 
+  href="http://www.cs.cmu.edu/~perspectives/component_load_failed.html">该页面</A>。
+  <LI><B>Gentoo</B>用户报告说当使用由“PORTAGE”下载的火狐浏览器运行perspectives时会遇到问题。我们还没有解决方案，但是如果用户使用从Mozilla下载的火狐二进制文件安装的火狐浏览器的话，perspectives能够在Gentoo上正常运行。
+  <LI> 有用户报告Perspectives会和<B>Foxit Reader </B>用于火狐的PDF浏览器插件互相干扰。原因我们还不知道，但是卸载Foxit Reader插件后，Perspectives能正常工作。
+  <LI>火狐2和火狐3所使用的插件API有很大的差异，现在的代码只在火狐3上工作，火狐2不支持。
+  <LI>我们用于跳过火狐安全警告页面（由自分配认证、不匹配以及过期的认证引起）的代码并不完善，有时您会看待警告在我们的代码跳过它之前出现。
+  </LI></OL><A name=source>
+<H2>源代码</H2>
+<P><A href="http://www.cs.cmu.edu/~perspectives/src/notary_src_firefox.tar.gz">火狐插件源代码 </A></P>
+<P>Perspectives火狐插件包含C++ XPCOM组件，因此它必须在目标平台上编译。Windows需要Visual C++ 2008 Express Edition，<A href="http://www.microsoft.com/express/download/#webInstall">免费下载</A>。
+</P>
+<P>现在，有关编译的文档并不完善。但是您在编译“firefox-v2/xp_com”目录代码之前，必须编译“common”和“notary-client”目录内的代码。Windows下的代码是在“firefox-v2/win_xp_com”目录，但是如果两套代码合并在一起，这个目录将改变。
+</P><!--RiteCounter-->
+<SCRIPT src="Perspectives%20%20Firefox%20Extension_files/22042.js" 
+type=text/javascript></SCRIPT>
+<NOSCRIPT>
+<P><A href="http://www.ritecounter.com/"><IMG 
+style="BORDER-TOP-WIDTH: 0px; BORDER-LEFT-WIDTH: 0px; BORDER-BOTTOM-WIDTH: 0px; BORDER-RIGHT-WIDTH: 0px" 
+alt="Simple Invisible Counter" 
+src="Perspectives%20%20Firefox%20Extension_files/htmlc.gif"></A></P></NOSCRIPT><!--END RiteCounter--></BODY></HTML>

@@ -1,0 +1,15 @@
+PRE {
+	FONT-SIZE: 10px; BACKGROUND: lightgrey
+}
+H2 {
+	FONT-SIZE: 125%; COLOR: white; BACKGROUND-COLOR: #669966
+}
+BODY {
+	MARGIN-LEFT: 100px; MARGIN-RIGHT: 100px
+}
+P.headp {
+	TEXT-ALIGN: center
+}
+.quick_link {
+	COLOR: white; BACKGROUND-COLOR: #669966; TEXT-ALIGN: center
+}

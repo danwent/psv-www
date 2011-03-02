@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<!-- saved from url=(0036)http://www.cs.cmu.edu/~perspectives/ -->
+<HTML lang=en xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"><HEAD><TITLE>Perspectives : Improving SSH-style Host Authentication with Multi-path Network Probing</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=gb2312"><LINK 
+href="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/style.css" 
+type=text/css rel=stylesheet>
+<SCRIPT type=text/javascript>
+var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</SCRIPT>
+
+<SCRIPT type=text/javascript>
+var pageTracker = _gat._getTracker("UA-5335740-1");
+pageTracker._trackPageview();
+</SCRIPT>
+
+<SCRIPT type=application/x-javascript>
+<!--
+function install (){
+  var params = {
+    "Install Perspectives": { URL: "Perspectives.xpi",
+      toString: function () {
+        return this.URL; }
+    }
+  };
+  InstallTrigger.install(params);
+
+  return false;
+}
+-->
+</SCRIPT>
+
+<META content="MSHTML 6.00.6000.16788" name=GENERATOR></HEAD>
+<BODY>
+<CENTER>
+<TABLE width="100%">
+  <TBODY>
+  <TR>
+    <TD width="25%"><A href="http://www.cs.cmu.edu/~perspectives/">
+      <DIV class=quick_link>Perspectives中文主页</DIV></A></TD>
+    <TD width="25%"><A 
+href="http://www.cs.cmu.edu/~perspectives/firefox.html">
+      <DIV class=quick_link>火狐插件</DIV></A></TD>
+    <TD width="25%"><A 
+href="http://www.cs.cmu.edu/~perspectives/openssh.html">
+      <DIV class=quick_link>OpenSSH客户端（英文版） </DIV></A></TD>
+    <TD width="25%"><A href="http://moo.cmcl.cs.cmu.edu/perspectives/">
+      <DIV class=quick_link>演示（英文版）</DIV></A></TD></TR></TBODY></TABLE></CENTER><BR>
+<H1 style="TEXT-ALIGN: center">Perspectives : 通过多路径网络探测
+<BR>改进SSH主机认证</H1>
+<P class=headp>学生: <A href="http://www.cs.cmu.edu/~dwendlan/">Dan 
+Wendlandt </A>and <A href="http://www.andrew.cmu.edu/~ejj/">Ethan Jackson</A> 
+</P>
+<P class=headp>邮箱: ( pers<A title="Reveal this e-mail address" 
+onclick="window.open('http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=', '', 'toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=500,height=300'); return false;" 
+href="http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=">...</A>@cs.cmu.edu 
+) </P>
+<P class=headp>导师: <A href="http://www.cs.cmu.edu/~dga/">Dave Andersen 
+</A>and <A href="http://www.ece.cmu.edu/~adrian/">Adrian Perrig </A></P>
+<P class=headp>此项研究工作得到NSF和Cylab的支持:<BR><A 
+href="http://www.nsf.gov/"><IMG height=55 
+src="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/nsfe.gif" 
+width=55></A> <A href="http://www.cylab.cmu.edu/"><IMG 
+src="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/sm_cylab_logo.jpg"></A> 
+</P></TD></TR></TABLE><BR>
+<P><SPAN style="COLOR: #f00">更新 1-1-2009:</SPAN> 最近我们收到许多关于<A 
+href="http://www.win.tue.nl/hashclash/rogue-ca/">SSL认证中MD5攻击</A>的询问。好消息是使用Perspectives检查所有SSL认证能够检测到该攻击。论文中描述的MD5弱点并不会影响Perspectives的安全性能。详细信息请看我们的<A href="http://www.cs.cmu.edu/~perspectives/md5.html">MD5论文</A>。
+</P>
+<P><SPAN style="COLOR: #f00">更新 10-31-2008:</SPAN> 我们发布了一个新版本的火狐插件。该插件更新了认证服务器列表：<A 
+href="http://www.cs.cmu.edu/~perspectives/firefox.html#install">现在安装</A><BR></P></TD><TD width="40%">
+<H2> 介绍: </H2>
+<P>为了避免“中间人攻击”，Perspectives是一种能够帮助客户端安全的确认网络服务器的新方法。与其他方法相比，Perspectives很简单便宜。因为通过探测和衡量分布在多个地点的网络认证服务器(network notaries)，
+Perspectives能自动的建立一个网络确认数据库。</P>
+<P><B>参与和贡献:</B> 如果你想为该项目做些贡献，例如编写代码，运行notary服务器，设计用户界面，或者写文档，请给我们发送邮件。
+我们希望尽快建立一个用于相关工作的主页。</P>
+<H2>描述：</H2>
+<P>当你在Internet上使用安全通信协议（例如SSL或者SSH）通信时，除非您能通过安全的方法确认远程服务器，否则您的通信有可能遭受“中间人攻击”。实现安全通信的一种方法是服务器加入“公共密匙组织（PKI）”，从认证机构（例如VeriSign）购买一个认证。</P>
+<P>不幸的是，PKI昂贵而且难于操作，导致广泛使用的一种简单便宜的机制：“相信第一次使用”，该机制将自分配认证用于SSH和HTTPS中。不幸的是，这种方法以安全为代价。例如，下面是一些来自OpenSSH和Firefox熟悉的警告：</P>
+<TABLE>
+  <TBODY>
+  <TR>
+    <TD><PRE>
+The authenticity of host 'host.domain.com (192.168.74.49)' 
+can't be established.  RSA key fingerprint is 
+07:fd:fb:9b:03:a2:b4:e8:b3:c9:0f:0b:db:43:1c:1a.
+Are you sure you want to continue connecting (yes/no)?
+
+</PRE>
+      <P></P><PRE>
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now 
+(man-in-the-middle attack)!  It is also possible that the 
+DSA host key has just been changed.  The fingerprint for 
+the DSA key sent by the remote host is
+4c:68:03:d4:5c:58:a6:1d:bd:17:13:84:14:48:ba:99.
+Please contact your system administrator.
+
+</PRE></TD>
+    <TD><IMG height=300 
+      alt="small screenshot of firefox error page for an untrusted certificate" 
+      src="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/https_untrustedroot_small.png" 
+      width=412> </TD></TR></TBODY></TABLE>
+<P>很少有用户会人工的验证密匙的正确性（很显然，我们天生懒惰！），但是Perspectives能够提供一个简单而且“无需费力”的方式，使用户得到关于该密匙是否正确的更多重要信息。客户端能够自动的与分布在世界各地的网络认证服务器（network notary servers）建立安全连接。
+这些服务器告诉客户端：</P>
+<OL>
+  <LI>服务器现在看到的用于该域名的密匙
+  <LI>服务器曾经看到的用于该域名的密匙
+</LI></OL>
+<P>来自网络认证服务器的回复能够很大程度上帮助用户确认收到的密匙是否有效，或者是否真的有“中间人攻击”存在。</P>
+<P>最后的结果是：如果认证服务器暗示密匙有效，应用程序则跳过警告；或者当“中间人攻击”出现时，应用程序给用户一个十分严重的警告！
+而不是应用程序只给出一个普通的警告，而这样的警告往往被用户忽略。</P>
+<H2>试用 </H2>
+<P>我们有一个运行在<A href="http://www.datapository.net/tb/">RON/IRIS测试平台</A>的网络认证服务器。</P>
+<P>通过试用您能: 
+<UL>
+  <LI>使用我们的<A href="http://moo.cmcl.cs.cmu.edu/perspectives/">认证接口来实时询问认证服务器</A>* 
+  <LI>使用我们的<A href="http://www.cs.cmu.edu/~perspectives/firefox.html">火狐3插件</A>来验证自分配的HTTPS认证。 
+  <LI>使用我们的 <A href="http://www.cs.cmu.edu/~perspectives/openssh.html">OpenSSH客户端</A>来提供更多关于初始SSH连接和密匙改变的信息。 
+  <P></P></LI></UL>
+<P>* 注意：现在，该页面使用自分配的认证</P>
+<H2>隐私政策</H2>
+<P><B>认证服务器的隐私政策: </B>所有的认证服务器遵守严格的隐私政策，<B>绝不记录客户端的IP地址和使用周期</B>。 Perspectives和它的软件在连接认证服务器时将遵守该隐私政策。我们十分重视保护您的隐私</P>
+<P>火狐和OpenSSH客户端都允许您配置何时联系认证服务器。实际上，您能设置火狐客户端，当每次需要联系认证服务器前都要获得您的允许。
+我们计划在将来改进这些隐私设置，欢迎您的任何建议。</P>
+<H2>认证服务器的操作</H2>
+<P> 现在，所有的网络认证服务器都是有我们的研究小组使用<A href="http://www.datapository.net/tb/">RON/IRIS测试平台</A>进行操作。现在的<A 
+href="http://www.cs.cmu.edu/~perspectives/notary_list.txt">notary_list.txt</A>（服务器列表）描述了运行的认证服务器和它们的公有密匙。这些公有密匙由客户端使用。</P>
+<P>将来，我们计划与其他知名实体合作（例如大学、ISP商等等），运行较大规模的网络认证服务器。如果您有兴趣运行一台认证服务器，请联系我们。</P>
+<P>认证服务器的代码使用C语言，伯克利DB，OpenSSL和OpenSSH。如我们在<A href="http://www.cs.cmu.edu/~perspectives/perspectives_usenix08.pdf">论文</A>中讨论的，即使比较陈旧过时的机器能够每天完成一百万次探测，同时每秒钟处理上千次客户端查询。<A 
+href="http://www.cs.cmu.edu/~perspectives/src/notary_src_server.tar.gz">下载源代码</A></P>
+<H2>论文: </H2>
+<P>我们最近在Usenix ATC 2008做报告，展示了<I>Perspectives:</I> Improving SSH-style Host 
+Authentication with Multi-Path Probing。</P>
+<P>论文: <A href="http://www.cs.cmu.edu/~perspectives/perspectives_usenix08.pdf">[PDF]</A> 
+<A href="http://www.usenix.org/event/usenix08/tech/full_papers/wendlandt/wendlandt_html/index.html">[HTML] 
+</A><A href="http://www.cs.cmu.edu/~perspectives/bib.txt">[BIBTEX] </A></P>
+<P>Usenix 报告幻灯片 <A href="http://www.cs.cmu.edu/~perspectives/perspectives_usenix.ppt">[PPT]</A> 
+</P>
+<P>Nanog 报告幻灯片 <A href="http://www.cs.cmu.edu/~perspectives/perspectives_nanog.ppt">[PPT]</A> </P>
+<H2> 常见的问题</H2>
+<P><B>问题:</B> 如果我不安装Perspectives，我的电脑是不是不安全？</P>
+<P><B>回答:</B> 不，如果您能简单的按照火狐默认的建议操作并拒绝连接任何显示安全错误的网站，您的电脑是安全的。Perspectives的目标是在安全性和可用性之间实现一个较好的平衡。
+如果您不熟悉网络安全，不知道由认证机构分配的认证和自分配认证之间的区别，Perspectives对您可能不太相符。希望将来我们能够和浏览器制造商（例如Mozilla和微软）一起工作，将类似于Perspectives的功能整合到普通的浏览器中。</P>
+<P>
+<P><B>问题:</B> 但是如果黑客控制了所有到达目标的途径，又会怎样？</P>
+<P><B>回答:</B> 有两个答案。对于详细的分析，请看我们的<A href="http://www.cs.cmu.edu/~perspectives/perspectives_usenix08.pdf">学术论文（英文）</A></P>
+<P>1) Perspectives实际上保持服务器所使用的密匙的记录。因此，即使一个很强大的黑客能够控制整个网络，客户端仍然能够检测到密匙是可疑的，因为该密匙最近被改变了。如果黑客能够控制整个网络很长一段时间，那么您有麻烦了，但是如此强大的黑客也能够欺骗许多认证机构。</P>
+<P>2) 尽管一个十分强大的黑客能够打败我们的系统，但是黑客想实施“中间人攻击”十分困难。现在，黑客是在您和目标之间的路径上，这并不是很困难。想想一个开放的无线网络，或者最近的DNS攻击。黑客出现在所有的路径上十分困难，安全最终就是使攻击变得很困难。
+</P><A name=firewall>
+<P><B>问题:</B> 我得到一个小红图标和一条消息称Perspectives不能成功的连接到认证服务器。怎么回事？</P>
+<P><B>回答:</B>最有可能的原因是您通过一个代理或者防火墙连接因特网，而代理或者防火墙阻止Perspectives连接到认证服务器。
+为了减小认证服务器的负担，客户端使用一种简单（但是仍然安全）的协议联系认证服务器，该协议使用使用UDP端口15217。如果是这种原因，您可以询问您的网络管理员。</P>
+<P>将来，我们希望在Perspectives中加入一个简单的HTTP代理来处理这种事件。如果您有兴趣帮忙的话，请通知我们。</P>
+<P><B>问题:</B> 我获得一个错误 "not compatible with your Firefox build type"。</P>
+<P><B>回答:</B> 我们的插件包含C++代码，我们必须为每一个支持的平台加入二进制库文件。有可能您在运行一个不支持的平台，例如64-bit Linux或者FreeBSD。如果您有兴趣帮助我们使Perspectives支持更多的平台，请通知我们！
+</P>
+<P><B>问题:</B> 在 "private" (RFC 1918) 空间中的服务怎么样? </P>
+<P><B>回答:</B> 对不起。很不幸，我们不能监视那些服务器使用的密匙，因为我们的认证服务器不能获得那些密匙。
+</P>
+<H2>联系方式与更新: </H2>
+<P>如果您有任何问题，建议，或者对于参与测试已发布的版本，写代码，或者运行认证服务器有兴趣的话，请点击下面的链接，得到我们的邮件地址：pers<A title="Reveal this e-mail address" 
+onclick="window.open('http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=', '', 'toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=500,height=300'); return false;" 
+href="http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=">...</A>@cs.cmu.edu .</P>
+<P><B>代码错误报告: </B></P>我们欢迎任何有关软件的代码错误报告以及其他特性的需求。如果您报告代码错误，请报告你使用代码的版本，平台（操作系统，版本，浏览器），以及如果要重现错误的话的确切环境。我们将努力与您共同工作并解决这些问题。<P></P>
+<P>
+如果您下载我们的软件或者对新版本的发布时间感兴趣，请注册加入我们的邮件列表<A 
+href="https://mailman.srv.cs.cmu.edu/mailman/listinfo/perspectives-announce">perspectives-announce 
+</A>。如果没有很重要的安全相关事件的发生，您在一个月内收到的邮件不会多余一封。</P><!--RiteCounter-->
+<SCRIPT 
+src="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/22042.js" 
+type=text/javascript></SCRIPT>
+<NOSCRIPT>
+<P><A href="http://www.ritecounter.com/"><IMG 
+style="BORDER-TOP-WIDTH: 0px; BORDER-LEFT-WIDTH: 0px; BORDER-BOTTOM-WIDTH: 0px; BORDER-RIGHT-WIDTH: 0px" 
+alt="Simple Invisible Counter" 
+src="Perspectives%20%20Improving%20SSH-style%20Host%20Authentication%20with%20Multi-path%20Network%20Probing_files/htmlc.gif"></A></P></NOSCRIPT><!--END RiteCounter--></BODY></HTML>

@@ -1,0 +1,1879 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html 
+ PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+<title>Perspectives: Improving SSH-style Host Authentication with
+Multi-Path Probing</title>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link href="style.css" rel="stylesheet" type="text/css" />
+<script src="citations.js" type="text/javascript">
+</script>
+</head>
+
+<body>
+
+<h1 class="titlemain"><em>Perspectives</em>: Improving
+SSH-style Host Authentication with Multi-Path Probing</h1>
+<p class="authors">
+Dan Wendlandt, David G. Andersen, Adrian Perrig
+</p>
+<p class="institutions">
+Carnegie Mellon University
+</p>
+
+<div id="abstract">
+
+<h2>Abstract</h2>
+<p>The popularity of
+'Trust-on-first-use'&nbsp;(Tofu) authentication, used by SSH and
+HTTPS with self-signed certificates, demonstrates significant
+demand for host authentication that is low-cost and simple to
+deploy. While Tofu-based applications are a clear improvement over
+completely insecure protocols, they can leave users vulnerable to
+even simple network attacks. Our system, <span style="font-variant:small-caps">Perspectives</span>, thwarts many of
+these attacks by using a collection of 'notary' hosts that observes
+a server’s public key via multiple network vantage points
+(detecting localized attacks) and keeps a record of the server’s
+key over time (recognizing short-lived attacks). Clients can
+download these records on-demand and compare them against an
+unauthenticated key, detecting many common attacks. <span style="font-variant:small-caps">Perspectives</span> explores a promising
+part of the host authentication design space: Trust-on-first-use
+applications gain significant attack robustness without sacrificing
+their ease-of-use. We also analyze the security provided by
+<span style="font-variant:small-caps">Perspectives</span> and
+describe our experience building and deploying a publicly available
+implementation.
+</p></div>
+
+<h2 id="htoc1">1&nbsp;&nbsp;Introduction</h2>
+
+<p>Despite decades of research into techniques for establishing
+secure communication channels for networked applications, many of
+today’s popular protocols remain vulnerable to
+<em>Man-in-the-Middle (MitM)</em> attacks. Some applications
+provide no security whatsoever (e.g., HTTP), and others rely on
+self-signed keys or Diffie-Hellman-like key exchange that can
+protect against eavesdroppers, but not against active adversaries
+who can interpose on communication between the two parties.</p>
+<p>While MitM attacks are not new, widespread use of shared
+wireless networks coupled with recent discoveries of
+<em>automated</em> MitM attacks in the wild indicate that the
+threat is increasingly relevant. For example, the Arpiframe worm
+uses ARP poisoning to interpose on the HTTP traffic of other hosts
+on the same LAN&nbsp;[<a href="#arpiframe08" class="citation">25</a>], while worms
+exploiting simple vulnerabilities in home routers exposed end-hosts
+to 'drive-by pharming' attacks that use DNS to redirect clients
+fake versions of security-sensitive websites&nbsp;[<a href="#pharmingwild08" class="citation">21</a>]. Furthermore, a study by Reis et al. used
+client-side measurements to confirm that real-time snooping and
+modification of web traffic is a reality in today’s
+networks&nbsp;[<a href="#reis08tripwires" class="citation">18</a>].</p>
+<p>In this paper, we examine a novel approach to authenticating a
+server’s public key. Traditional approaches to server key
+authentication, such as a public-key infrastructure
+(PKI)&nbsp;[<a href="#DiOoWi92" class="citation">5</a>,<a href="#rfc2527" class="citation">7</a>],
+rely on trusted entities (e.g., Verisign) that grant certificates
+based on the validation of real-world identities. When done
+securely, such verification requires significant (often manual)
+effort. While some network hosts, primarily commercial websites,
+can afford to pay the high verification cost for these
+certificates, clients have no simple and effective means to
+authenticate connectivity to most other hosts on the Internet.</p>
+<p>Because the high cost of creating and managing a host PKI
+presented a substantial barrier to the replacement of completely
+insecure protocols such as telnet, the <em>SSH model</em> of host
+authentication emerged as a pragmatic solution. Authentication in
+the SSH model relies on the user’s discretion to decide if an
+unauthenticated key is valid. Keys deemed valid by the client are
+cached locally and used to authenticate subsequent communication
+with the same server. While some users may verify all new or
+changed server public keys in a secure manner (e.g., by memorizing
+a key fingerprint or verifying the key via an alternate trusted
+channel), users often simply <em>assume the absence of an adversary
+on the initial connection and accept the initial key without
+verification</em>. We refer to this common approach as
+<b>Trust-on-first-use (Tofu)</b> authentication (it is also known
+as 'leap-of-faith' authentication).</p>
+<p>The Tofu approach has two primary weaknesses:</p>
+<ol class="enumerate">
+<li class="li-enumerate">By accepting any key on the initial
+connection, users render themselves vulnerable to attack by any
+adversary either on the path between the user and the server or on
+a shared wireless LAN.</li>
+<li class="li-enumerate">On subsequent connections, the user must
+still manually determine the validity of any key that conflicts
+with a cached key. A user who assumes such key changes are valid
+without verification receives no protection against MitM
+attacks.</li>
+</ol>
+<p>These weaknesses in the Trust-on-first-use approach are
+particularly severe in the case of websites using self-signed SSL
+certificates, because web clients tend to visit a large number of
+sites, increasing the number of vulnerable initial connections.
+Moreover, web users often lack the means and/or expertise to
+manually verify keys.</p>
+<p><span style="font-variant:small-caps">Perspectives</span>
+improves on basic Tofu authentication by having a collection of
+semi-trusted hosts called <em>network notaries</em> periodically
+probe a large number of network services (e.g., SSH and HTTPS
+servers) to build a record of the public keys used by those
+services over time. When a client receives an unauthenticated
+public key from a service, it contacts the notaries to download the
+history of keys used by that service. This additional data from
+diverse network vantage points over a span of time gives clients
+the 'perspective' to make a strictly better security decision:
+clients can often detect attacks during an initial connection or a
+key cache conflict, the two scenarios when the standard Tofu
+authentication is most vulnerable.</p>
+<p>Because notaries generate their data using automated network
+probes, <em>applications using</em> <em><span style="font-variant:small-caps">Perspectives</span></em> <em>enjoy the
+same simplified deployment model as SSH: no certificate authority
+is needed to verify the identity of server owners and grant them
+certificates</em>. Instead, the validity of a service’s key is
+determined by its existence on the network over time. While the
+notary infrastructure adds some complexity to a Tofu-based
+application, it exists independent of both clients and servers.
+Servers can remain unmodified while updated clients benefit from
+notary data.</p>
+<p>While this paper focuses on protocols that use unauthenticated
+keys (i.e., the SSH model), <span style="font-variant:small-caps">Perspectives</span> can also help even
+when PKI-signed certificates are used. As we discuss in Section
+<a href="#sec:discussion">8</a>, because users often ignore browser
+security warnings&nbsp;[<a href="#schechter07" class="citation">9</a>,<a href="#egelman08phishing">19</a>], a MitM attacker can fool a user by
+injecting a bogus self-signed certificate in the place of a
+PKI-signed certificate. <span style="font-variant:small-caps">Perspectives</span> clients can easily
+detect this attack by comparing the received certificate with those
+seen by the notaries.</p>
+<p>This paper makes four primary contributions:</p>
+<ol class="enumerate">
+<li class="li-enumerate">It presents the design of a modular
+network notary infrastructure that tolerates internal failures and
+compromises (Sections <a href="#sec:design">3</a> and <a href="#sec:data_redundancy">5</a>).</li>
+<li class="li-enumerate">It describes a framework for (possibly
+automated) client policies that aggregate notary replies and
+determine if a key is trustworthy (Section <a href="#sec:policy">4</a>).</li>
+<li class="li-enumerate">It analyzes <span style="font-variant:small-caps">Perspectives</span>’s ability to resist a
+variety of network attacks within a realistic threat model,
+demonstrating that it can protect Tofu-based applications from many
+MitM attacks (Section <a href="#sec:attacks">6</a>).</li>
+<li class="li-enumerate">It describes the implementation and
+benchmarking of a publicly available release of <span style="font-variant:small-caps">Perspectives</span>, including a robust
+notary server and modified OpenSSH and Mozilla Firefox clients
+capable of implementing basic key trust policies (Section <a href="#sec:implementation">7</a>).</li>
+</ol>
+
+<h2 id="htoc2">2 &nbsp;&nbsp;Overview of <span style="font-variant:small-caps">Perspectives</span></h2>
+
+<p><a id="sec:threat"></a><a id="sec:overview"></a></p>
+<div class="figure">
+<p class="fig">
+<img src="overview.png" alt="overview diagram of Perspectives' operation"/>
+</p>
+<p class="caption">
+Figure 1: Overview of a client using
+<span style="font-variant:small-caps">Perspectives</span>. In
+practice, several notaries would be contacted in parallel before
+making a key trust decision.
+<a id="fig:overview"></a>
+</p>
+</div>
+
+<p>We name our system <span style="font-variant:small-caps">Perspectives</span> because it helps
+clients make sound security decisions by leveraging views from
+multiple network vantage points. <span style="font-variant:small-caps">Perspectives</span>’ task is to help
+clients determine whether they should accept an untrusted public
+key received while connecting to a particular <em>network
+service</em>. Example services include SSH access to an end-host or
+HTTPS access to a website that uses a self-signed SSL
+certificate.</p>
+<p><span style="font-variant:small-caps">Perspectives</span> uses a
+set of publicly available servers, called <em>network
+notaries</em>, that monitor and record the history of public keys
+used by a network service. A notary cryptographically signs (i.e.,
+notarizes) statements saying that at time <i>t</i> it observed
+service <i>S</i> using public key <i>K</i>. The basic operation of
+<span style="font-variant:small-caps">Perspectives</span> is shown
+in Figure&nbsp;<a href="#fig:overview">1</a>. When a client
+connects to a network service, it receives an <em>offered key</em>
+in reply. If the offered key is unauthenticated (i.e., it does not
+match an existing key in the client cache) the client must either
+accept the offered key, taking a security risk, or reject the key,
+losing the ability to communicate with the service. To obtain more
+information to make this decision, the client contacts a set of
+notaries and requests all <em>observed key data</em> for that
+service. The client then uses application-specific <em>key-trust
+policies</em> (Section <a href="#sec:policy">4</a>) to interpret
+this data and accept or reject the key. These policies check for
+consistency between the offered key and the keys seen by each
+notary, often allowing clients to distinguish between a legitimate
+key and an attack.</p>
+
+<h3 id="htoc3">2.1&nbsp;&nbsp;Threat Model &amp; Attack Resistance</h3>
+
+<p>Attackers mount MitM attacks by providing clients with a false
+public key in order to observe or modify network communications. In
+our attack model, an adversary can compromise any path in the
+network as well as components of the notary infrastructure itself.
+Only the client and server themselves must be completely trusted, a
+standard requirement for host authentication schemes.</p>
+<p>While our model allows any network or notary component to be
+compromised, we borrow from Abraham Lincoln and assume that an
+attacker 'can fool all of the [components] some of the time, and
+some of the [components] all of the time, but it cannot fool all of
+the [components] all of the time.' That is, we assume that attacks
+are <em>either</em>: (1) localized to a particular network scope or
+(2) of limited duration, since a larger attack is more easily
+detected and remedied.</p>
+<p>In this paper, we use the term <em>redundancy</em> to describe
+the protections that <span style="font-variant:small-caps">Perspectives</span> provides. Key
+observations gathered from multiple network vantage points provide
+<em>spatial redundancy</em>, since unless an attacker can
+compromise all network paths to a destination, notary data will let
+a client to detect that an attack is likely underway. <em>Temporal
+redundancy</em>, provided by the key history data returned by each
+notary, can offer additional protection because even if an attacker
+compromises all paths to the server, clients can still detect that
+a recent key change occurred and regard the new key with suspicion.
+Finally, <em>data redundancy</em> (described in Section <a href="#sec:data_redundancy">5</a>) helps clients detect malicious
+notaries that supply inconsistent information, thereby limiting the
+effectiveness of attacks on the notary infrastructure itself.</p>
+<p>The precise attack resistance provided <span style="font-variant:small-caps">Perspectives</span> depends entirely on
+how a client’s key-trust policy sets the parameters defining
+spatial, temporal, and data redundancy in order to balance the risk
+of accepting an unauthenticated key with the possibility of
+incorrectly rejecting a valid key. Sections <a href="#sec:policy">4</a> and <a href="#sec:attacks">6</a> explore this
+trade-off in detail.</p>
+
+<h3 id="htoc4">2.2&nbsp;&nbsp;<span style="font-variant:small-caps">Perspectives</span> vs. a Standard
+PKI</h3>
+
+<p>At a high level, <span style="font-variant:small-caps">Perspectives</span> might be described as
+a 'lightweight PKI'. While both <span style="font-variant:small-caps">Perspectives</span> and a standard PKI
+require that clients securely retrieve one or more public keys to
+bootstrap trust, there are two key differences between <span style="font-variant:small-caps">Perspectives</span> and the traditional
+PKI currently used to grant SSL certificates:</p>
+<ol class="enumerate">
+<li class="li-enumerate"><b>Mechanism for binding hostnames to
+public keys:</b> Traditional PKIs use an <em>offline</em> mechanism
+to determine that the real-world entity requesting a certificate in
+fact owns the associated hostname. <span style="font-variant:small-caps">Perspectives</span> uses automated
+network probing to bind keys to a hostname.</li>
+<li class="li-enumerate"><b>Degree of client control over trust
+decisions:</b> With a traditional PKI, the certificate authority
+makes a universal judgment regarding key validity. With
+<span style="font-variant:small-caps">Perspectives</span>, each
+client independently interprets notary data and makes a decision
+based on its own security requirements.</li>
+</ol>
+<p>Because probing by network notaries does not protect against all
+possible network attacks, we expect that highly sensitive services
+like bank or large e-commerce websites will continue to use
+heavyweight PKI mechanisms (possibly augmented with notary data,
+see Section <a href="#sec:discussion">8</a>). However, we believe
+that <span style="font-variant:small-caps">Perspectives</span>
+provides a simple and cost-effective way to improve the attack
+resistance of services that currently either use Trust-on-first-use
+or are completely unauthenticated.</p>
+
+<h2 id="htoc5">3&nbsp;&nbsp;The Notary Architecture</h2>
+
+<p><a id="sec:design"></a></p>
+<p>We now explore how the notary infrastructure provides spatial
+and temporal redundancy to help clients evaluate an untrusted
+public key. We defer some implementation details until Section
+<a href="#sec:implementation">7</a>. <em>Notary servers</em> are a
+coordinated group of hosts distributed across the Internet.
+<em>Notary clients</em> are integrated into applications (e.g., an
+SSH client) and contact notary servers to download observed key
+data with which to make a key-trust decision.</p>
+
+<h3 id="htoc6">3.1&nbsp;&nbsp;Notary Administration</h3>
+
+<p><a id="sec:trust_assumptions"></a></p>
+<p>We envision a network notary group to be a fixed group of at
+least five (but possibly many more) servers located in diverse
+network locations. The group may be run by a single entity, but we
+design it in a decentralized fashion to also support a cooperative
+deployment in which universities, ISPs, hosting providers, or other
+well-known organizations each contribute one or two
+nodes.<sup><a href="#note1" class="footnote" id="text1">1</a></sup>
+Cooperative Internet testbeds like PlanetLab&nbsp;[<a class="citation" href="#Peterson:hotnets02">15</a>] and RON&nbsp;[<a class="citation" href="#Andersen-ccr2003">2</a>] are another attractive deployment
+option. For simplicity we describe a single notary group, but in
+practice multiple notary groups controlled by different entities
+could operate in parallel.</p>
+<p>Each notary group is organized by a <em>notary authority</em>
+that determines which machines are legitimate notary servers. The
+notary authority has a public/private key pair and publishes its
+public key (<i>K<sub>Authority</sub></i>) using an
+out-of-band mechanism (e.g., as with Tor, the key could be
+distributed with any software that accesses the notary group). To
+add a notary server <i>X</i> to the system, <i>X</i>’' owner
+generates a public/private key pair and furnishes the public key
+<i>K<sub>X</sub></i> and its IP address
+<i>A<sub>X</sub></i> to the notary authority. Each day the
+notary authority publishes a list of notary server IP address
+(<i>A<sub>i</sub></i>) and public key
+(<i>K<sub>i</sub></i>) pairs to each of the notary servers
+in the systems, along with a signature <i>S</i> = {<i>Date</i>,
+(<i>A</i><sub>1</sub>, <i>K</i><sub><i>A</i><sub>1</sub></sub>),
+(<i>A</i><sub>2</sub>, <i>K<sub>A<sub>2</sub></sub>)</i>, ...,
+(<i>A<sub>n</sub></i>,
+<i>K<sub>A<sub>n</sub></sub></i>)
+}<sub><i>K<sub>Authority</sub></i><sup>-1</sup></sub> . A
+client can contact any notary server, download the list, and
+validate this signature using <i>K</i><sub><i>Authority</i></sub>
+to receive a fresh list of notary IP addresses and public keys.</p>
+
+<h3 id="htoc7">3.2&nbsp;&nbsp;Notary Server Key Monitoring</h3>
+
+<div class="figure">
+<p class="fig"><img src="serverclient.png" alt="diagram of interaction between notary server and client"/></p>
+<p class="caption">Figure 2: Schematic of a notary server and SSH client.
+<a id="fig:notary_server"></a>
+</p>
+</div>
+
+<p>Notary servers monitor the public key(s) used by a network
+service over time. A notary server provides clients with an
+application-independent query interface, but uses application-aware
+<em>probing modules</em> to monitor different types of services
+(e.g., SSH or HTTPS). A probing module observes keys by connecting
+to the service and mimicking an ordinary client until it receives
+the service’s public key, at which point it disconnects.</p>
+<p>Each notary server uses a local database to store a <em>service
+entry</em> for each monitored service. A service entry contains all
+observed key data the notary has recorded while monitoring that
+service over time (see Figure <a href="#fig:notary_server">2</a>).
+An entry is uniquely identified by the combination of a
+<em>service-type</em>, which identifies the protocol used to
+retrieve the key (e.g., HTTPS)<sup><a href="#note2" class="footnote" id="text2">2</a></sup> and a <em>service-id</em>, which provides
+the information necessary to contact the service (e.g., hostname
+and port). The observation history of each key is stored as one or
+more <em>key timespans</em>. A key timespan is a start and end
+timestamp pair (<i>t</i><sub><i>start</i></sub>,
+<i>t</i><sub><i>end</i></sub>) that indicates a period of time
+during which the notary observed only that key for the service.
+When the notary makes a new observation it updates the
+corresponding service entry in the following manner: if the
+observed key is the same key observed during the previous
+observation, the notary simply updates the
+<i>t</i><sub><i>end</i></sub> value of the most recent key timespan
+to the current time. Otherwise, the notary creates a new key
+timespan with both <i>t</i><sub><i>start</i></sub> and
+<i>t</i><sub><i>end</i></sub> set to the current time and adds this
+timespan and the new key (if necessary) to the service entry. If a
+probe fails to receive a key from the service, the notary creates
+or updates a timespan with a 'null key' containing no key data.</p>
+<p>The notary also stores a cryptographic signature for each
+service entry in the database. Using its private key, the notary
+calculates a signature over all data in the service entry: the
+(service-id, service-type), as well as each key and its associated
+key timespans. This signature is updated following each
+modification of the service entry. Section <a href="#sec:implementation">7</a> measures the overhead of this simple
+signature scheme and mentions potential optimizations.</p>
+
+<h3 id="htoc8">3.3&nbsp;&nbsp;Querying Notary Servers</h3>
+
+<p><a id="sec:notary_protocol"></a></p>
+<p>The client application contacts the notary whenever it receives
+a key from a service that does not match an existing entry in its
+cache. This may occur because the client has never contacted the
+service or because the offered key does not match the already
+cached key for the service.</p>
+<p>When contacting an individual notary (Figure <a href="#fig:notary_protocol">3</a>), the client specifies a
+(service-type, service-id) pair. The notary finds the corresponding
+entry in its database and replies with observed key data consisting
+of keys and their associated timespan(s), along with a signature
+over that data using the notary’s private key.</p>
+<blockquote class="figure">
+<div class="center"></div>
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td align="left" colspan="3"><b>Notary Protocol:</b></td>
+</tr>
+<tr>
+<td align="left"><i>C</i> → <i>N</i> :</td>
+<td align="left">&nbsp;</td>
+<td align="left">S = (service-id,
+service-type)</td>
+</tr>
+<tr>
+<td align="left">N:</td>
+<td align="left">&nbsp;</td>
+<td align="left">
+(<i>O</i>,{<i>O</i>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub>)
+= find_service_entry(S)</td>
+</tr>
+<tr>
+<td align="left"><i>N</i> → <i>C</i> :</td>
+<td align="left">&nbsp;</td>
+<td align="left"><i>O</i>,
+{<i>O</i>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub></td>
+</tr>
+</table>
+<div class="caption">
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td valign="top" align="left">Figure 3: The basic notary protocol
+between a single client (C) and the notary server (N).</td>
+</tr>
+</table>
+</div>
+<p><a id="fig:notary_protocol"></a></p>
+<div class="center"></div>
+</blockquote>
+<p>The process by which a client queries for and receives notary
+data is described in Figure <a href="#fig:key_auth">4</a>. Recall
+that a notary client learns about all notary servers and their
+public keys using a list distributed by the notary authority. The
+client’s key-trust policy (Section <a href="#sec:policy">4</a>)
+determines <i>n</i>, the number of notaries that the client should
+contact. The client then randomly chooses <i>n</i> entries from the
+list of notaries and queries these servers in parallel using
+UDP.<sup><a href="#note3" class="footnote" id="text3">3</a></sup> The
+querying process is complete once enough notaries have replied for
+the client policy to make a trust decision, or when the client
+determines that all remaining notaries are unreachable (clients
+implement a simple retransmission strategy). The client validates
+the signature for each response using that notary’s public key,
+discarding any invalid responses.</p>
+
+<div class="figure">
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td align="left">
+<b>Check-Unauthenticated-Key</b>(<i>s</i>,&nbsp;<i>K</i><sub><i>offered</i></sub>)&nbsp;{&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>O</i>&nbsp;=&nbsp;{}&nbsp;//&nbsp;all&nbsp;observations&nbsp;for&nbsp;service&nbsp;<i>s</i>&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;All-Notaries&nbsp;=&nbsp;<i>load</i>_<i>notary</i>_<i>addresses</i>()&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Chosen-Notaries&nbsp;=&nbsp;<i>choose</i>_<i>random</i>(<i>n</i>,&nbsp;All-Notaries)&nbsp;</td>
+</tr>
+<tr>
+<td align="left">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;foreach&nbsp;&nbsp;<i>x</i>&nbsp;&nbsp;in&nbsp;&nbsp;Chosen-Notaries&nbsp;&nbsp;in&nbsp;&nbsp;parallel&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(<i>O</i><sub><i>x</i></sub>,&nbsp;{<i>O</i><sub><i>x</i></sub>}<sub><i>K</i><sub><i>x</i></sub><sup>−1</sup></sub>)&nbsp;=&nbsp;<i>contact</i>_<i>notary</i>(<i>x</i>,<i>s</i>)&nbsp;&nbsp;&nbsp;&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>K</i><sub><i>x</i></sub>&nbsp;=&nbsp;<i>load</i>_<i>notary</i>_<i>key</i>(<i>x</i>)&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>if</i>(&nbsp;<i>verify</i>_<i>signature</i>(<i>O</i><sub><i>x</i></sub>,&nbsp;{<i>O</i><sub><i>x</i></sub>}<sub><i>K</i><sub><i>x</i></sub><sup>−1</sup></sub>,&nbsp;<i>K</i><sub><i>x</i></sub>))&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>O</i>&nbsp;=&nbsp;<i>O</i>&nbsp;⋃&nbsp;<i>O</i><sub><i>x</i></sub>&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>if</i>(&nbsp;!&nbsp;<i>check</i>_<i>trust</i>_<i>policy</i>(<i>K</i><sub><i>offered</i></sub>,&nbsp;<i>O</i>)&nbsp;)&nbsp;</td>
+</tr>
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>abort</i>_<i>connection</i>()&nbsp;</td>
+</tr>
+<tr><td align="left">&nbsp;}</td></tr>
+</table>
+
+<p class="caption">
+Figure 4: How a client checks an
+unauthenticated key <i>K</i><sub><i>offered</i></sub> for service
+<i>s</i>. Details of <i>check</i>_<i>trust</i>_<i>policy</i>() are
+discussed in Section <a href="#sec:policy">4</a>.
+<a id="fig:key_auth"></a>
+</p>
+</div>
+
+<h2 id="htoc9">4&nbsp;&nbsp;Notary Client Key-Trust Policies</h2>
+
+<p><a id="sec:policy"></a></p>
+<p>Once a client has received observed key data from notary
+servers, it uses a <em>key-trust policy</em> to accept or reject an
+offered key based on this data. Code implementing the client policy
+decision examines the offered key and all validated observed key
+data, and may also consider inputs such as previously cached keys,
+user security preferences, or even active user input. Upon
+completion, the client application either accepts the key and
+continues running the protocol or rejects the key and
+disconnects.</p>
+
+<h3 id="htoc10">4.1&nbsp;&nbsp;The Security vs. Availability
+Trade-off</h3>
+
+<p>The SSH model (which includes both Trust-on-first-use and
+<span style="font-variant:small-caps">Perspectives</span>) presents
+clients making a key-trust decision with a basic <em>security vs.
+availability trade-off</em>: faced with an untrusted key, the
+client can take a security risk and accept the key, or be safe and
+reject the key, at the cost of making the service (at least
+temporarily) unavailable. For example, when faced with an
+unauthenticated key, standard Trust-on-first-use makes two
+different security vs. availability trade-offs: First, if no key is
+cached for the service, Tofu chooses availability at the cost of
+security by always accepting the offered key. Second, in the case
+of a key conflict, a Tofu application cannot automatically accept
+the key, so it must favor security over availability or prompt the
+user for help.</p>
+<p>Lacking useful information about the key’s validity, Tofu
+applications are stuck making this inflexible trade-off. In
+contrast, because <span style="font-variant:small-caps">Perspectives</span> provides additional
+data indicating whether a key is likely to be the result of an
+attack, it allows application key-trust policies to make
+significantly more intelligent security vs. availability
+trade-offs.</p>
+<p>In this section we explore several variations on client
+key-trust policies. We do not claim that these policies are optimal
+(in fact, significantly more nuanced and complex policies exist),
+but rather offer them as evidence that even simple policies can
+support a wide range of security vs. availability trade-offs.</p>
+
+<h3 id="htoc11">4.2&nbsp;&nbsp;Quorum: A Key-Trust Primitive</h3>
+
+<p>Recall that <span style="font-variant:small-caps">Perspectives</span> provides security by
+allowing clients to leverage spatial redundancy (key observations
+from multiple vantage points) and temporal redundancy (key
+observations over time). Therefore, the role of a client policy is
+to test the spatial and temporal consistency of the offered key
+with respect to notary data. To provide a framework for reasoning
+about spatial and temporal consistency, we introduce threshold
+parameters that quantitatively represent these properties.<br />
+<br />
+<b>Definition:</b> For a set of <i>n</i> notary servers, a service
+<i>S</i>, and a threshold <i>q</i> (0 ≤ <i>q</i> ≤ <i>n</i>) we say
+that a key <i>K</i> has <em>quorum</em> at time <i>t</i> iff at
+least <i>q</i> of the <i>n</i> notaries report that <i>K</i> is the
+key for <i>S</i> at time <i>t</i>.<br />
+<br />
+Intuitively, for values of <i>q</i> that are large relative to
+<i>n</i>, a key that has quorum indicates consensus among the
+observations made by the all notaries at a single point in time. We
+use another threshold parameter to extend the concept of quorum
+into the temporal realm.<br />
+<br />
+<b>Definition:</b> For a set of <i>n</i> notary servers, a service
+<i>S</i>, and a quorum threshold of <i>q</i>, a key <i>K</i> has a
+<em>quorum duration</em> of <i>d</i> at time <i>t</i> iff for all
+<i>t</i>′ such that (<i>t</i> − <i>d</i>) ≤ <i>t</i>′ ≤ <i>t</i>
+the key <i>K</i> had quorum with threshold <i>q</i> at time
+<i>t</i>′.<br />
+<br />
+Quorum duration indicates how long, without interruption, a set of
+notaries has consistently seen a particular key.<sup><a href="#note4" class="footnote" id="text4">4</a></sup> Applications can make
+security vs. availability trade-offs by choosing to accept an
+untrusted key only if it exceeds a particular quorum duration
+threshold. Higher <i>q</i> and <i>d</i> thresholds provide more
+security, but risk reducing availability by incorrectly rejecting
+valid keys. For example, setting <i>q</i> equal to the total number
+of notaries <i>n</i> provides the strongest protection against
+accepting a false key, but also means that a single unavailable or
+compromised notary could cause the client to reject a valid key.
+Similarly, a higher quorum duration threshold <i>d</i> protects
+against a strong attacker that compromises many paths for a
+significant amount of time, but would also require clients to
+reject connections to services that are new or have recently
+changed keys.</p>
+<p>Next, we consider three examples of how the concepts of quorum
+and quorum duration might be used by a <span style="font-variant:small-caps">Perspectives</span> client policy.<br />
+<br />
+<b><span style="font-size:120%">Example Policy: Expert User</span></b><br />
+<b>Same number of warnings, more useful data.</b><br />
+<br />
+We first consider a client application policy for a 'expert user'
+who understands the risk of a MitM attack and is familiar with the
+SSH authentication model. In this case, the client always warns the
+user but also includes concise summaries of the notary data that
+help the user make a better security vs. availability decision.
+Similar to existing Tofu client, policy behavior depends on whether
+the offered key conflicts with an existing cache entry.<br />
+</p>
+
+<p><b>Case 1: No Server Key Cached</b></p>
+<p>In this case, the user is not necessarily suspicious of the new
+key, but she will use observed key data to confirm that the key is
+consistent across many notaries and that the duration of the key
+history is commensurate with her expectation of key age. If quorum
+duration is satisfied, the policy module may supply a message
+like:</p>
+
+<p>
+<span style="font-size:90%"><tt>Key seen consistently for the past <i>Z</i> days.</tt></span>
+</p>
+<p>
+If the key fails to achieve quorum or does not have sufficient
+quorum duration based on policy parameters, the user might see one
+of the following warnings:</p>
+<p>
+<span style="font-size:90%"><tt>SUSPECTED ATTACK: Offered key is NOT consistent.
+Only <i>X</i> of <i>Y</i> notaries currently see it.</tt></span>
+</p>
+<p>
+<span style="font-size:90%"><tt>WARNING: Server key has only been seen
+consistently for the past <i>Z</i> days.</tt></span>
+</p>
+<p><b>Case 2: Offered Key Differs from Cached Key</b></p>
+<p>In this case, the user must distinguish between a legitimate
+server key change and a falsely injected key. As in Case 1, the
+user will be interested in the prevalence and duration of the
+offered key, since a substantial quorum duration indicates a higher
+likelihood that the conflicting key is the result of a legitimate
+server key change:</p>
+<p>
+<span style="font-size:90%"><tt>Offered key conflicts with cached key, but has
+been consistently seen for <i>Z</i> days.</tt></span></p>
+
+<p>
+Additionally, because the policy has access to the cached key that
+is currently trusted for the server, the policy might also
+highlight portions of the key history that cast suspicion on the
+new key. For example, a warning might indicate that some notaries
+are still currently observing the cached key, suggesting that the
+server has not actually changed its key:</p>
+<p>
+<span style="font-size:90%"><tt>LIKELY ATTACK: Offered key conflicts with cached
+key and cached key is still observed by <i>X</i> of
+<i>Y</i> notaries!</tt></span></p>
+<p>
+Interpreting such statements requires little additional work on the
+part of the user but provides her with vastly more information than
+warnings in current Tofu applications like SSH. In the rare case
+that such a summary is insufficient, expert users may view all
+observed key data, similar to how web browsers optionally display
+SSL certificates.</p>
+
+<p>
+<b><span style="font-size:120%">Example Policy: Non-Expert User 1</span></b><br />
+<b>Same number of warnings, varied severity.</b></p>
+<p>
+Because non-expert users are unlikely to want or be able to make
+good security decisions based on the notary data itself, another
+policy approach is use a quorum duration test to determine how
+severe of a warning to give the user. For example, a simple
+approach would be to give users a standard warning as long as
+three-quarters of the notary servers have seen the key for at least
+a day (i.e., <i>q</i> = 0.75 · <i>n</i> and <i>d</i> &gt; 1 day),
+but give them a more severe and intrusive 'security failure'
+warning if notary data detects a key inconsistency indicating a
+probable attack.</p>
+<p>For HTTPS the need for such a policy to distinguish likely
+attacks from valid self-signed replies is increasingly evident, as
+new versions of two major browsers (Internet Explorer 7 and Firefox
+3) have introduced new user interfaces that treating self-signed
+certificates as failures by default. Rather than simply displaying
+a warning dialog, the new interfaces do not render the page at all
+and instead display an error page similar to a failed
+connection.</p>
+<p>
+<b><span style="font-size:120%">Example Policy: Non-Expert User 2</span></b><br />
+<b>Fewer warnings, based on high-level preferences.</b></p>
+<p>
+Much usability research suggests that web users often make bad
+security decisions by ignoring warnings&nbsp;[<a class="citation" href="#schechter07">9</a>,<a href="#egelman08phishing" class="citation">19</a>]. Instead
+of using quorum duration to determine the severity of a warning, a
+client could choose to issue no warning at all if an offered key
+has sufficient quorum duration. The precise values for <i>q</i> and
+<i>d</i> may be determined by high-level user preferences for 'high
+security' or 'medium security' already common in browsers
+today.</p>
+<p>While the merits of this approach is ultimately a usability
+question, this tactic may help reduce 'banner blindness' associated
+with browser security warnings. As an additional benefit, this
+approach could increase overall adoption of HTTPS by eliminating
+the frequent security dialogs that likely make some website owners
+hesitant to use self-signed certificates at all.</p>
+
+<h2 id="htoc12">5&nbsp;&nbsp;Detecting Malicious Notaries</h2>
+
+<p><a id="sec:data_redundancy"></a></p>
+<p>The final aspect of the notary design is <em>data
+redundancy</em>, a cross-validation mechanism that limits the power
+of a compromised or otherwise malicious notary server.</p>
+<p>To implement data redundancy each notary acts as a <em>shadow
+server</em> for several other notaries. As described below, a
+shadow server stores an immutable record of each observation made
+by another notary. Whenever a client receives a query reply from a
+notary, the client also checks with one or more of that notary’s
+shadow servers to make sure that the notary reply is consistent
+with the history stored by the shadow server.</p>
+
+<h3 id="htoc13">5.1&nbsp;&nbsp;Benefits of Data Redundancy</h3>
+
+<p>An adversary in control of a notary and its corresponding
+private key can provide clients with false observed key data. Data
+redundancy prevents a notary from changing data already recorded in
+its observation history, much as schemes such as forward-secure
+signatures&nbsp;[<a href="#bellare99forwardsecure" class="citation">3</a>] do. As a
+result, an attacker that compromises a notary cannot, for example,
+create a new malicious key and falsely claim that this key has been
+stably seen over a long period of time. This cross-validation
+ensures that the only way an adversary can make a malicious key
+appear 'stable' is by sustaining a network attack for a
+commensurate amount of time, even with notary compromises.
+Additionally, data redundancy guarantees that a notary, even after
+compromise, cannot give conflicting answers to two clients querying
+about the same service. This property (which cannot be achieved
+using forward-secure signatures) could help hosts scan for and
+detect notaries that act maliciously.</p>
+
+<h3 id="htoc14">5.2&nbsp;&nbsp;Cross-Validation Protocol</h3>
+
+<p>Each entry in the list published by the notary authority also
+lists MAX-REDUNDANCY other notaries that each act as a shadow
+server for the notary specified in the entry. A notary server is
+responsible for keeping all of its shadow servers up-to-date. When
+a notary server contacts a service <i>S</i>, it updates its local
+database and then sends the new service entry (including signature)
+to each of its shadows.<sup><a href="#note5" class="footnote" id="text5">5</a></sup></p>
+<p>Shadow servers update their shadow copies in a way that prevents
+malicious notaries from eliminating previously shadowed data. To do
+so, the shadow server requires that each key timespan in the old
+shadow copy either also exists in the new shadow copy or is
+'contained' within a larger timespan in the new copy (i.e., both
+timespans have identical <i>t</i><sub><i>start</i></sub> values,
+but the new copy’s <i>t</i><sub><i>end</i></sub> value is greater
+than that of the old copy). Additionally, no timespans in the new
+copy can overlap. If the old and new data are consistent, the old
+data is discarded. If an inconsistency exists, the shadow server
+stores both sets of observed key data and signatures. After
+updating, the shadow server uses its own private key to generate a
+signature over both the shadowed data and the signature of the
+other notary. This signature is stored with the shadowed data and
+allows clients to authenticate that a reply to a shadow request
+came from the correct shadow server.</p>
+<p>Client policy specifies <i>r</i> (<i>r</i>≤ MAX-REDUNDANCY), the
+number of shadow servers that must corroborate a notary’s
+observation for it to be deemed valid. For each notary <i>N</i> the
+client contacts, it randomly selects <i>r</i><sub><i>q</i></sub>
+(<i>r</i><sub><i>q</i></sub> ≥ <i>r</i>) of <i>N</i>’s shadow
+servers to query. When contacting a shadow server (Figure <a href="#fig:shadow_protocol">5</a>), the client specifies the IP address
+of <i>N</i> as well as the service-id from the original query to
+<i>N</i>. The shadow server replies with a service entry (observed
+key data and signature) created by <i>N</i>, along with the shadow
+server’s signature over that data. If fewer than <i>r</i> of
+<i>N</i>’s shadows provide valid responses signed by
+<i>K</i><sub><i>n</i></sub>, the client disregards all data from
+<i>N</i>. After verifying the signatures, any inconsistencies among
+the original and shadowed data will cause the client to reject data
+from <i>N</i>. Additionally, because of non-repudiation, clients
+can provide any inconsistent data and signatures to the notary
+authority as evidence of a notary's malicious behavior.</p>
+
+<div class="figure">
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td align="left" colspan="3"><b>Cross-Validation
+Protocol:</b></td>
+</tr>
+<tr>
+<td align="left"><i>C</i> → <i>SH</i> :</td>
+<td align="left">&nbsp;</td>
+<td align="left">{ <i>N</i>, <i>s</i> }</td>
+</tr>
+<tr>
+<td align="left"><i>SH</i>:</td>
+<td align="left">&nbsp;</td>
+<td align="left"><i>DB</i><sub><i>n</i></sub> =
+<i>get</i>_<i>replica</i>_<i>databse</i>(<i>N</i>)</td>
+</tr>
+<tr>
+<td align="left"><i>SH</i>:</td>
+<td align="left">&nbsp;</td>
+<td align="left"><i>O</i><sub><i>N</i></sub>,
+&nbsp;{<i>O</i><sub><i>N</i></sub>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub>,
+&nbsp;
+{<i>O</i><sub><i>N</i></sub>,{<i>O</i><sub><i>N</i></sub>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub>}<sub><i>K</i><sub><i>SH</i></sub><sup>−1</sup></sub>
+=
+<i>find</i>_<i>service</i>_<i>entry</i>(<i>DB</i><sub><i>N</i></sub>,<i>s</i>)</td>
+</tr>
+<tr>
+<td align="left"><i>SH</i> → <i>C</i> :</td>
+<td align="left">&nbsp;</td>
+<td align="left"><i>O</i><sub><i>N</i></sub>,
+&nbsp;
+{<i>O</i><sub><i>N</i></sub>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub>,
+&nbsp;
+{<i>O</i><sub><i>N</i></sub>,{<i>O</i><sub><i>N</i></sub>}<sub><i>K</i><sub><i>N</i></sub><sup>−1</sup></sub>}<sub><i>K</i><sub><i>SH</i></sub><sup>−1</sup></sub></td>
+</tr>
+</table>
+<p class="caption">
+
+Figure 5: A client (C) contacting
+shadow server (SH) for a shadow copy of notary <i>N</i>’s observed
+key data for service <i>s</i>. Note that the integrity of N’s
+service entry is protected in transit by a signature using the
+shadow server’s key.
+<a id="fig:shadow_protocol"></a></p>
+</div>
+
+<h2 id="htoc15">6&nbsp;&nbsp;<span style="font-variant:small-caps">Perspectives</span> Security
+Analysis</h2>
+
+<p><a id="sec:attacks"></a></p>
+<p>To demonstrate the benefits of network notaries, in this section
+we enumerate realistic attack scenarios and compare the security
+provided by <span style="font-variant:small-caps">Perspectives</span> to that offered by
+basic Trust-on-first-use. We analyze both an adversary’s ability to
+launch a MitM attack, as well as its ability to deny availability
+(DoS) by causing a client to reject a valid key.<br /></p>
+
+<div class="figure">
+<table cellspacing="0" border="1" cellpadding="1" width="98%">
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left">&nbsp;</td>
+<td align="center" colspan="2"><b>Tofu</b></td>
+<td align="center" colspan="2"><b><span style="font-variant:small-caps">Perspectives</span></b></td>
+</tr>
+<tr>
+<td valign="top" align="left"><b>Compromise</b></td>
+<td valign="top" align="left"><b>DoS</b></td>
+<td valign="top" align="left"><b>MitM</b></td>
+<td valign="top" align="left"><b>DoS</b></td>
+<td valign="top" align="left"><b>MitM</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<b><i>L</i></b><sub><b><i>client</i></b></sub></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<p><b><i>L</i></b><sub><b><i>server</i></b></sub></p>
+</td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>temporal safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<p><b><i>k</i> · <i>n</i></b><sub><b><i>m</i></b></sub></p>
+</td>
+<td valign="top" align="left"><b>safe</b></td>
+<td valign="top" align="left"><b>safe</b></td>
+<td valign="top" align="left">k &gt; (n - q) : <b>X</b> <br/> 
+                              k ≤ (n - q) : <b>safe</b></td>
+<td valign="top" align="left"><b>safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<b><i>L</i></b><sub><b><i>server</i></b></sub> +
+<b><i>L</i></b><sub><b><i>client</i></b></sub></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>temporal safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<p><b><i>L</i></b><sub><b><i>client</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub></p>
+</td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left">k ≥ (q + q · r) : <b>X</b> <br/> 
+                              k ≥ q : <b>temporal safe</b> <br/>
+                              k &lt; q : <b>safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<p><b><i>L</i></b><sub><b><i>server</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub></p>
+</td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left">k ≥ (q + q · r) : <b>X</b><br/>
+                              k &lt; (q + q · r) : <b>temporal safe</b></td>
+</tr>
+<tr>
+<td valign="top" align="left">
+<b><i>L</i></b><sub><b><i>server</i></b></sub> +
+<b><i>L</i></b><sub><b><i>client</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left"><b>X</b></td>
+<td valign="top" align="left">k ≥ (q + q · r) : <b>X</b><br/>
+                              k &lt; (q + q · r) : <b>temporal
+safe</b></td>
+</tr>
+</table>
+<p class="caption">
+Table 1: Summary of attack resistance
+provided by <span style="font-variant:small-caps">Perspectives</span> in comparison to the
+standard Tofu approach. The left column contains abbreviated attack
+descriptions as defined in the text. Columns show resistance to
+availability (DoS) and MitM attacks. <b>X</b> indicates no resistance,
+'<b>safe</b>' indicates that attacks are detected, and '<b>temporal
+safe</b>' indicates temporal safety, as defined below.
+<a id="fig:attack_table"></a>
+</p>
+</div>
+
+<p><b>MitM Attacker Resources:</b><br />
+<br />
+Our analysis considers three possible system components which an
+adversary may control. Enumerating each combination of these
+possible compromises lets us analyze all scenarios relevant to the
+attack resistance of <span style="font-variant:small-caps">Perspectives</span>:<br /></p>
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left">
+<b><i>L</i></b><sub><b><i>client</i></b></sub>:</td>
+<td valign="top" align="left">An adversary controlling the client’s
+local link can modify or drop all client-to-service and
+client-to-notary communication.</td>
+</tr>
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left">
+<b><i>L</i></b><sub><b><i>server</i></b></sub>:</td>
+<td valign="top" align="left">A compromise of the server’s local
+link lets an attacker inject arbitrary keys when either clients or
+notaries contact the server.</td>
+</tr>
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left"><b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub>:</td>
+<td valign="top" align="left">A compromise of <i>k</i> distinct
+notary servers.</td>
+</tr>
+</table>
+<p><br />
+As discussed earlier,
+<b><i>L</i></b><sub><b><i>client</i></b></sub> is a likely attack,
+due to the prevalence of open wifi hotspots and insecure home
+networks that allow compromised hosts or home routers to easily
+inject or modify traffic. In contrast, servers often reside in more
+controlled network environments, making
+<b><i>L</i></b><sub><b><i>server</i></b></sub> significantly
+harder. This is particularly true in the case of HTTPS. Thus, to
+achieve <b><i>L</i></b><sub><b><i>server</i></b></sub>, an
+adversary might compromise the gateway router for the destination,
+or use BGP to falsely announce the destination’s prefix,
+misdirecting some or all traffic destined for the server. An
+attacker may also control arbitrary Internet routers that place it
+on <i>k</i> of the <i>n</i> notary-to-service paths. However,
+because this attacker is a strictly weaker version of the
+<b><i>k</i> · <i>n</i></b><sub><b><i>m</i></b></sub> attacker, we
+do not examine it separately. Additionally, since
+<b><i>L</i></b><sub><b><i>client</i></b></sub> or
+<b><i>L</i></b><sub><b><i>server</i></b></sub> allows the attacker
+to mount a trivial DoS attack in either scenario, we do not
+explicitly mention this attack below.<br />
+<br />
+<b>Analysis Parameters:</b><br />
+<br />
+As described in Section <a href="#sec:policy">4</a>, the actual
+security and availability that a client will receive depends on its
+choice for the following policy parameters:<br /></p>
+<table cellspacing="6" cellpadding="0">
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left"><b>n:</b></td>
+<td valign="top" align="left">Number of notary servers contacted by
+the client.</td>
+</tr>
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left"><b>q:</b></td>
+<td valign="top" align="left">Quorum threshold of client.</td>
+</tr>
+<tr>
+<td valign="top" align="center"></td>
+<td valign="top" align="left"><b>r:</b></td>
+<td valign="top" align="left">Number of shadow servers (per notary)
+the client requires for data redundancy.</td>
+</tr>
+</table>
+<p><br />
+We do not directly model the length of an attack or a client’s
+quorum duration. Instead, we use the concept of 'temporal safety',
+which means that a client will be safe as long as its quorum
+duration threshold is larger than the actual duration of the
+attack.<sup><a href="#note6" class="footnote" id="text6">6</a></sup>
+Table <a href="#fig:attack_table">1</a> summarizes the
+results.<br />
+<br />
+<b>Analysis Results:</b><br />
+<br />
+<b><i>L</i></b><sub><b><i>client</i></b></sub> <b>Compromise:</b>
+When only the client’s access link is compromised, Tofu provides no
+defense against a MitM attack, while data from network notaries
+allows a client to easily detect and avoid the same attack.</p>
+<p>It is important to recognize that the attacker gains no MitM
+advantage by using <b><i>L</i></b><sub><b><i>client</i></b></sub>
+to disrupt client-to-notary communication. All data returned by a
+notary is protected by a signature from that same notary, meaning
+that notary responses cannot be spoofed, even if the attacker has
+compromised other notaries. Furthermore, adversaries cannot
+encourage acceptance of a false key by making notaries or shadow
+servers unreachable, since blocking such communication will prevent
+any key (including a malicious one) from achieving quorum.
+Maliciously dropping client-to-notary communication to prevent a
+legitimate key from achieving quorum does not increase attacker
+power, since control over
+<b><i>L</i></b><sub><b><i>client</i></b></sub> already allows for a
+trivial DoS attack by simply dropping all packets.<br />
+<br />
+<b><i>L</i></b><sub><b><i>server</i></b></sub> <b>Compromise:</b> A
+compromise of only the server link also renders a basic Tofu client
+vulnerable to MitM attacks. For <span style="font-variant:small-caps">Perspectives</span>, the compromise of
+all paths to the server will prevent spatial diversity alone from
+detecting an attack. However, historical key data provides a client
+with temporal safety against network attacks.<br />
+<br />
+<b><i>k</i> · <i>n</i></b><sub><b><i>m</i></b></sub>
+<b>Compromise:</b> The compromise of notaries alone will not enable
+an adversary to inject a false key to the client and launch a MitM
+attack. However, this adversary can attack availability by trying
+to cause a client to incorrectly reject a valid key. Disabling k
+&gt; n - q notary servers, either by compromising them or by making
+them unreachable, prevents the client from establishing a quorum
+even if the remaining servers all agree on the valid public key.
+Because this attack is possible even if the adversary is not on the
+client-to-service path, it represents an availability vulnerability
+that does not exist with the Tofu approach. However, this attack is
+limited to scenarios when clients receive a new key for a service;
+it does not apply to repeated connections between a client and a
+server using a cached key.<br />
+<br />
+<b><i>L</i></b><sub><b><i>client</i></b></sub> +
+<b><i>L</i></b><sub><b><i>server</i></b></sub> <b>Compromise:</b>
+The analysis of this scenario is identical to
+<b><i>L</i></b><sub><b><i>server</i></b></sub>, since, as discussed
+above, using <b><i>L</i></b><sub><b><i>client</i></b></sub> to
+restrict client access to notary servers provides no attack
+benefits.<br />
+<br />
+<b><i>L</i></b><sub><b><i>client</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub> <b>Compromise:</b> Control
+over the client link and some notary nodes lets the attacker use
+notaries to 'promote' an invalid key using false observations. An
+attacker cannot perform a MitM attack unless it compromises a full
+quorum q of notaries, since the client rejects keys that do not
+achieve quorum. If an attacker compromises q notary servers, the
+situation is identical to the
+<b><i>L</i></b><sub><b><i>server</i></b></sub> scenario described
+above: the client is still protected for a time period determined
+by its quorum-duration. However, if the adversary compromises an
+additional q · r notaries beyond the basic quorum, it can overcome
+the data redundancy of the system. Without data redundancy the
+attacker can forge the observation history, eliminating the
+protections of temporal safety. <sup><a href="#note7" class="footnote" id="text7">7</a></sup><br />
+<br />
+<b><i>L</i></b><sub><b><i>server</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub> <b>Compromise</b>: This
+attack is stronger than the previous
+<b><i>L</i></b><sub><b><i>client</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub> scenario, since control over
+the destination service’s link means that even legitimate notaries
+will observe the attacker’s key. As a result, even if fewer than q
+notaries are compromised, the client relies entirely on temporal
+safety.<br />
+<br />
+<b><i>L</i></b><sub><b><i>server</i></b></sub> +
+<b><i>L</i></b><sub><b><i>client</i></b></sub> + <b><i>k</i> ·
+<i>n</i></b><sub><b><i>m</i></b></sub> <b>Compromise:</b> This
+scenario is identical to the previous attack. As described in the
+<b><i>L</i></b><sub><b><i>server</i></b></sub> +
+<b><i>L</i></b><sub><b><i>client</i></b></sub> case, client link
+access grants no additional power if an adversary already has
+server link access.</p>
+<p>This attack analysis demonstrates that <span style="font-variant:small-caps">Perspectives</span> significantly
+improves resistance to MitM attacks compared to Tofu. Additionally,
+<span style="font-variant:small-caps">Perspectives</span> is robust
+to limited compromises of the notary infrastructure itself.</p>
+
+<h2 id="htoc16">7&nbsp;&nbsp;Experience with Notary Server and Client
+Implementations</h2>
+
+<p><a id="sec:implementation"></a></p>
+<p>To demonstrate the viability of a network notaries and to gain
+experience with its deployment, we have implemented and are running
+a publicly available network notary on the RON
+testbed&nbsp;[<a href="#rontestbed-web" class="citation">22</a>]. Additionally, we
+have created two different <span style="font-variant:small-caps">Perspectives</span> clients: a modified
+version of the OpenSSH client for SSH and an extension to the
+Mozilla Firefox browser for use with HTTPS certificates. We have
+made both server and client source code publicly available at:
+<a href="http://www.cs.cmu.edu/~perspectives/"><tt>http://www.cs.cmu.edu/~perspectives/</tt></a>.
+Our performance measurements indicate that a single notary server
+can monitor several million hosts a day while simultaneously
+handling a large number of client queries.</p>
+
+<h3 id="htoc17">7.1&nbsp;&nbsp;Notary Server Implementation</h3>
+
+<p>Our notary server code is written in C and uses the Berkeley DB
+library for storing observed key data and signatures. The notary
+probes services running either SSL or SSH using probing modules
+based on code from OpenSSL and OpenSSH. The only substantial
+difference between our implementation and the design described in
+Section <a href="#sec:design">3</a> is that we do not implement
+data redundancy, in part because our notary deployment is run by a
+single trusted entity.</p>
+<p>We benchmarked our notary server with respect to service
+monitoring and query response operations to demonstrate that
+network notaries are practical on commonplace hardware. In our
+implementation, notaries use 1369-bit RSA keys for service entry
+signatures<sup><a href="#note8" class="footnote" id="text8">8</a></sup>
+and store public keys as 128-bit MD5 fingerprints.<sup><a href="#note9" class="footnote" id="text9">9</a></sup></p>
+<p>We run our each benchmark on two different machines. One is a
+modern server (<i>Server</i><sub><i>Fast</i></sub>) with two
+dual-core 2 GHz AMD Opteron CPUs and 8 GB of RAM. The other server
+(<i>Server</i><sub><i>Slow</i></sub>) is a three year old machine
+with a single-core P4 2.4GHz CPU and 512 MB of RAM, intended to
+demonstrate that a modest notary infrastructure could still be run
+on older (perhaps donated) hardware. A summary of the results is
+provided in Table <a href="#table:macrobenchmarks">2</a>.<br /></p>
+<div class="figure">
+<table cellspacing="0" border="1" cellpadding="1">
+<tr>
+<td align="left">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+Operation</td>
+<td align="center" colspan="2">Operations /
+Sec</td>
+</tr>
+<tr>
+<td align="left">&nbsp;</td>
+<td align="center">&nbsp;</td>
+<td align="center">&nbsp;</td>
+</tr>
+<tr>
+<td align="left">&nbsp;</td>
+<td align="center">
+<i>Server</i><sub><i>Slow</i></sub></td>
+<td align="center">
+<i>Server</i><sub><i>Fast</i></sub></td>
+</tr>
+<tr>
+<td align="left">Monitor service key</td>
+<td align="center">26</td>
+<td align="center">195</td>
+</tr>
+<tr>
+<td align="left">Monitor service key (no sig.)</td>
+<td align="center">112</td>
+<td align="center">270</td>
+</tr>
+<tr>
+<td align="left">Handle query (in memory)</td>
+<td align="center">21,700</td>
+<td align="center">25,600</td>
+</tr>
+<tr>
+<td align="left">Handle query (disk-bound)</td>
+<td align="center">114</td>
+<td align="center">-</td>
+</tr>
+</table>
+
+<p class="caption">
+Table 2: Summary of notary server
+benchmarks for machines <i>Server</i><sub><i>Slow</i></sub> and
+<i>Server</i><sub><i>Fast</i></sub>.
+<a id="table:macrobenchmarks"></a>
+</p>
+</div>
+
+<p><b>Monitoring Load:</b> To benchmark notary monitoring, we
+identified a set of <em>.com</em> domains running HTTPS using a
+web-crawl and had our notary server monitor these sites (Our SSH
+scans exhibited nearly identical rates and are therefore omitted).
+When monitoring a service, the notary must perform the protocol
+negotiation necessary to retrieve the service’s key, load the
+existing service entry from the database, update the entry,
+recompute the entry’s signature, and store the entry again. Our
+code uses RSA signatures implemented in OpenSSL and takes the
+simple (albeit heavyweight) approach of forking a process running a
+slightly modified OpenSSH or OpenSSL client for each
+probe.<sup><a href="#note10" class="footnote" id="text10">10</a></sup>
+<i>Server</i><sub><i>Fast</i></sub> and
+<i>Server</i><sub><i>Slow</i></sub> performs 195 and 26 such
+operations per second, respectively. While these rates may seem
+small, even at only 50% utilization they correspond to 8.4 million
+and 1.1 million probes per day. Table <a href="#table:macrobenchmarks">2</a> also shows monitoring rates when
+signatures are not computed, indicating that optimizing the
+cryptographic processing by batching service records or creating a
+hash-tree over multiple service entries would significantly improve
+performance.<br />
+<br />
+<b>Query Handling Load:</b> The primary consideration for query
+processing performance is whether the notary’s databases fit in
+memory (recall that a notary may have multiple databases due to
+shadowing). With the cryptographic parameters described above, a
+single service entry with several keys and timespans will consume
+approximately 250 bytes. Thus, a database with one million entries
+(250 MB) can easily fit even in the small memory of
+<i>Server</i><sub><i>Slow</i></sub>. Table <a href="#table:macrobenchmarks">2</a> shows benchmarks for both servers
+responding to randomized client queries (measured over the
+loop-back interface). If the database is in memory, the response
+rate is above 20,000 requests/sec for both servers (because our
+server code is single-threaded, there is little difference between
+the two machines). To identify likely response rates when the
+database must be accessed from disk, we tested
+<i>Server</i><sub><i>Slow</i></sub> with a database that was four
+times the size of its main memory. In this case, the speed of a
+disk-seek limits the response rate to 114 queries/second. However,
+even this query-processing rate (which translates to just under 10
+million per day) may be viable when clients contact notaries only
+on rare cache misses.<sup><a href="#note11" class="footnote" id="text11">11</a></sup><br />
+<br />
+<b>Bandwidth Requirements:</b> Bandwidth usage depends on both the
+monitoring rate and query rate. Including all network headers and
+TCP acknowledgments, monitoring a single SSH service requires about
+1.5 KB of upstream bandwidth and 2.3 KB of downstream bandwidth.
+For SSL the same values are 0.5 KB and 2.0 KB. Such data sizes are
+comparable to a single small image embedded in a webpage.
+Monitoring a million hosts a day would correspond to an average
+rate of less than 213 Kb/s in each direction. With network headers,
+notary requests are approximately 60 bytes and replies are 315
+bytes (for standard key sizes). While handling a flood of 20,000
+requests per second would require 50 Mb/s of upstream bandwidth, a
+server could handle 10 million requests a day (116 requests per
+second) using only 420 Kb/s.</p>
+<p>Because we expect notary nodes to be deployed primarily by
+universities and large companies like ISPs or webhosting providers,
+we do not expect bandwidth to be a limiting factor unless a server
+is under DoS attack.</p>
+
+<h3 id="htoc18">7.2&nbsp;&nbsp;Notary Client Implementations</h3>
+
+<p>To demonstrate the general nature of the <span style="font-variant:small-caps">Perspectives</span> approach, we created
+two client implementations that access our notary group. Both
+clients share common library code that reads notary configurations,
+creates and parses protocol messages and implements basic quorum
+duration policies. As a result, we expect that porting other
+clients to work with <span style="font-variant:small-caps">Perspectives</span> will not be
+difficult.<br />
+<br />
+<b>OpenSSH Client:</b> We modified the popular
+OpenSSH&nbsp;[<a href="#openssh-web" class="citation">14</a>] client software to
+contact notary servers when no cached key exists or when the
+offered key differs from the cached key. The modifications
+consisted of a few library calls within the SSH code that checks
+the key cache, as well as functionality to interact with the user
+when making a key-trust decision (our client roughly follows the
+expert user example described in Section <a href="#sec:policy">4</a>). We have used the modified client within our
+university for nearly a year and have found the added latency of
+contacting notary servers to be negligible.<br />
+<br />
+<b>Mozilla Firefox HTTPS Client:</b> We implemented our notary
+client for HTTPS within the Mozilla Firefox extension framework,
+meaning that users can easily install it without having to download
+a new browser. The HTTPS notary extension (Figure <a href="#fig:firefox">6</a>) is written in a combination of C++ and
+javascript. Whenever a certificate validation fails, the notary
+client extracts the public key from the certificate and contacts
+the notaries.</p>
+<p>Our implementation allows users to set a preference for 'High
+Security' or 'Medium Security', which correspond to different
+quorum duration thresholds. Keys that achieve quorum duration are
+accepted automatically, while other keys result in disconnection
+with an error message. The 'High Availability' security setting
+gives expert users the ability to connect even when a key does not
+achieve quorum duration. These users are provided with the
+certificate and a summary of notary data in order to make their own
+key-trust decision.</p>
+
+
+<div class="figure">
+<p class="fig"><img src="ff_screenshot.png" alt="partial screen capture of firefox browser running perspectives"/></p>
+<p class="caption">
+Figure 6: This screen capture shows
+the bottom right-hand corner of a Firefox browser window, which
+contains the HTTPS notary extension's visual indicator. In this
+case, the website satisfied quorum duration, so the browser
+automatically accepted the certificate and suppressed the
+certificate warnings usually displayed to the user. The image also
+shows the tool-tip that summarizes the notary data for the
+user.
+<a id="fig:firefox"></a>
+</p>
+</div>
+
+<p>Because use of our OpenSSH and Firefox clients is currently
+limited to the Linux and FreeBSD/Mac OS X platforms, we also
+provide a web page that allows users to query notary servers even
+without a modified client.</p>
+
+<h3 id="htoc19">7.3&nbsp;&nbsp;Generating a List of Services to
+Monitor</h3>
+
+<p>Section <a href="#sec:design">3</a> assumes a priori knowledge
+of what services the notary server should periodically monitor. We
+consider two possibilities for how notaries might build this
+list.</p>
+<p>The first approach, which we use in our implementation, is for a
+notary to add a service to its database the first time a client
+queries for it. While this approach does not initially provide
+clients with temporal redundancy, when bootstrapping the system,
+notaries might probe 'on-demand' to provide even the first client
+with spatial redundancy to help detect
+<b><i>L</i></b><sub><b><i>client</i></b></sub> attacks. A client
+could seed the notary with services (e.g., from the
+<tt>known_hosts</tt> file in SSH) and a server could register for
+monitoring by querying a notary with its own address as the
+service-id.</p>
+<p>The second approach is to proactively discover services. For
+example, HTTPS websites can be found using web crawling or search
+engines. For less public services, such as SSH, TCP-layer scanning
+on standard protocol ports could discover a large number of
+services. We built one such scanning engine to evaluate this
+approach on SSH servers within our campus network and a few large
+public IP blocks. We found that while scanning can quickly identify
+tens of thousands of SSH servers, it has three key limitations.
+First, if reverse DNS is unavailable for an IP address, we cannot
+reference a service entry in terms of the DNS name. Second, such
+scanning misses services running on non-standard ports. Finally,
+scanning may be misinterpreted as an attack. Because active
+discovery cannot identify all services, one promising approach is
+to seed notaries with data from active discovery, and then identify
+additional services as clients query for them.</p>
+
+<h3 id="htoc20">7.4&nbsp;&nbsp;Notary Parameters</h3>
+
+<p>We now outline the primary considerations for choosing a notary
+group’s global parameters.<br />
+<br />
+<b>Number of Notaries:</b> Because MitM attacks are most likely at
+the network edge (i.e.,
+<b><i>L<sub>client</sub></i></b> or
+<b><i>L<sub>server</sub></i></b>), increasing spatial
+redundancy is likely to have diminishing returns: in the case of
+<b><i>L<sub>client</sub></i></b>, even a few valid
+notaries will detect an attack, while for
+<b><i>L<sub>server</sub></i></b>, all notaries will
+see the same false key. We therefore suggest that clients query
+from 4 to 10 notaries, depending on their desired robustness to
+notary compromises or failures.<br />
+<br />
+<b>Notary Monitoring Frequency:</b> A notary would like to minimize
+the time between when a server first comes online or changes its
+public key and when the notary server observes this change. Our
+measurements indicate that a single notary could monitor several
+million different servers a few times each day.<br />
+<br />
+<b>Degree of Data Redundancy:</b> The degree of data redundancy
+required for a set of notaries depends greatly on who administers
+individual notary nodes. If nodes are run by one or a few trusted
+entities that take great care to secure the machines, little or no
+data redundancy may be needed. However, even when data redundancy
+is needed, MAX-REDUNDANCY can likely be small (2 to 4), because
+clients can detect inconsistencies if any one of the contacted
+shadow servers are not compromised.</p>
+
+<h2 id="htoc21">8&nbsp;&nbsp;Discussion</h2>
+
+<p><a id="sec:discussion"></a></p>
+<p><b>Notaries and DNS Attacks:</b> So far, we have focused on
+adversaries that compromise IP-level paths or notary servers.
+Adversaries could also manipulate DNS to falsely map a service’s
+hostname to an IP address that places the adversary 'on path'. When
+notaries and clients use DNS names to identify services, a
+compromised local or remote DNS server present the same threat as
+the corresponding <b><i>L<sub>client</sub></i></b> or
+<b><i>L<sub>server</sub></i></b> attack. Thus, the
+analysis in Section <a href="#sec:attacks">6</a> applies to DNS
+attacks as well.</p>
+<p>Additionally, if an attacker controls only DNS, notaries can
+help clients detect and even circumvent such attacks. To do so,
+notaries would also record the IP address used when monitoring a
+service. If a client sees that both the service key and IP have
+changed from a previously trusted or stable key, it can connect
+directly to the IP addresses associated with the old key to test if
+that key is still visible on the network. If the client receives
+the prior key from any of the past addresses, it can (depending on
+local policy) disregard the new key as a DNS attack and instead
+connect directly to the address using the prior key.<sup><a href="#note12" class="footnote" id="text12">12</a></sup><br />
+<br />
+<b>Client Privacy Considerations:</b> While benign notary servers
+would not record a client’s IP address, a malicious notary could
+link client addresses and destination services, impinging on client
+privacy. Because clients access the notary group only rarely (when
+the offered key is not cached) and do so only when a legitimate
+security threat exists, we believe that most clients will consider
+this potential privacy risk acceptable.</p>
+<p>However, clients that desire additional privacy could contact
+the notary group through a proxy. One promising design for such a
+proxy is to have the notary authority run a DNS nameserver for a
+special notary domain (e.g., <em>notary.com</em>). A notary client
+looking for observed key data for <em>server.domain.com</em> from
+<em>num-notary</em> different servers would perform a DNS look-up
+for <em>num-notary.server.domain.com.notary.com</em>.<sup><a href="#note13" class="footnote" id="text13">13</a></sup> The nameserver for
+<em>notary.com</em> would then randomly query <em>num-notary</em>
+servers and return the base64-encoded results as a DNS TXT record.
+Because of the recursive nature of DNS look-ups, the notary
+nameserver would learn only general information about the client
+(e.g., that they use CMU’s DNS servers), and the rest of the
+notaries would learn no client-specific information. Clients are
+unlikely to have privacy concerns about notary queries via local
+DNS resolvers, since they already expose basic connection
+information to the resolver with standard DNS look-ups.<br />
+<br />
+<b>Detecting Authentication Downgrade Attacks:</b> Our primary
+motivation for designing <span style="font-variant:small-caps">Perspectives</span> was to help
+authenticate services that do not have certificates signed by a
+global PKI. However, users can also benefit from using <span style="font-variant:small-caps">Perspectives</span> even when accessing
+websites with PKI-signed certificate by gaining protection against
+<em>authentication downgrade attacks</em>. In an authentication
+downgrade attack, a MitM adversary injects a self-signed
+certificate in place of the PKI-signed certificate sent by the
+legitimate server. Because the attacker can spoof legitimate names
+in the domain name and issuer fields, the significant number of
+users who routinely ignore many browser security
+warnings&nbsp;[<a href="#schechter07" class="citation">9</a>,<a class="citation" href="#egelman08phishing">19</a>] would fall victim to such an attack.
+In fact, a malicious exit-node in the Tor anonymizing network was
+recently observed running such an attack&nbsp;[<a class="citation" href="#tor-hijacks">23</a>]. However, if notaries also monitor services
+with PKI-signed certificates, clients could detect this attack by
+comparing the received certificate against the notary replies. This
+same approach would also help prevent the even more damaging attack
+in which an attacker tricks one of the many root CAs trusted by a
+browser into signing an invalid certificate.<sup><a href="#note14" class="footnote" id="text14">14</a></sup><br />
+<br />
+<b>On-demand Service Monitoring:</b> A slightly modified notary
+design could allow clients to request that notaries probe a service
+'on-demand', for example, when the client’s offered key does not
+match the most recent entry in the notary history. Depending on
+client policy, this approach could reduce the likelihood that a
+client incorrectly rejects a key following a legitimate server key
+change. However, because the notary must cryptographically sign the
+each new probe result, it would be more vulnerable to DoS attacks.
+In light of this and other potential abuses, on-demand probing is
+best suited for either a private notary group with limited access
+or a public notary group augmented with a strong rate-limiting
+mechanism like client puzzles&nbsp;[<a class="citation" href="#JueBra99d">11</a>].<br />
+<br />
+<b>Scaling the Notary Infrastructure:</b> Our design and
+implementation focuses on a notary infrastructure that is easily
+deployed and capable of regularly monitoring several million unique
+services. If <span style="font-variant:small-caps">Perspectives</span> is widely adopted as
+a standard host authentication mechanism, it can easily scale.
+First, note that notary replies are simply static data, which could
+be made available via a content delivery network (e.g., Akamai) or
+a network storage service (e.g., Amazon’s S3). The physical
+location or ownership of these machines would be unrelated to the
+hosts generating observed key data. Because monitoring and updating
+observed key data is trivially parallelizable, this work can be
+distributed to a cluster of machines in each notary location.
+Trends toward many-core machines should further improve the
+efficiency of service monitoring.</p>
+
+<h2 id="htoc22">9&nbsp;&nbsp;Related Work</h2>
+
+<p><a id="sec:related"></a></p>
+<p>Significant work exists on the problem of authenticating remote
+Internet hosts. Standard solutions include X.509 certificates
+within a global PKI&nbsp;[<a href="#rfc2527" class="citation">5</a>], or
+Kerberos&nbsp;[<a href="#MNSS88" class="citation">13</a>], which assumes that each
+participant has a shared secret with a trusted third party. Such
+solutions are extremely useful, but the popularity of the SSH model
+demonstrates the need for lightweight alternatives.</p>
+<p>Ali and Smith&nbsp;[<a href="#AliS04" class="citation">1</a>] propose improving
+SSH key authentication using a 'portable key cache', which the user
+stores along with an authenticating MAC on a personal webserver.
+With a modified SSH client, the user can access this cache from any
+machine, use a passphrase to verify the integrity of its contents,
+and then compare the offered key to entries in the cache. This
+design helps users who would otherwise see the same new or changed
+key warning several times when connecting to the same server(s)
+from multiple client machines. However, unlike <span style="font-variant:small-caps">Perspectives</span>, it provides no help
+in determining a key’s validity when a user either accesses a
+service for the first time or when an offered key does not match
+the key in the user’s portable cache.</p>
+<p>Advocating a more significant departure from the standard SSH
+authentication model, RFC 4255&nbsp;[<a href="#rfc4255" class="citation">20</a>]
+proposes storing SSH host key fingerprints in DNS. Unfortunately,
+this proposal relies on the deployment of the secure DNS PKI to
+authenticate the fingerprint data itself, and secure DNS has shown
+little traction to date. Additionally, the proposal requires that a
+domain’s DNS administrator fulfill the responsibilities of a
+certificate authority: verifying that a real-world entity who
+contacts him with a certificate request legitimately owns a
+particular host. In contrast, <span style="font-variant:small-caps">Perspectives</span> requires no
+heavyweight verification and instead automatically creates
+authentication data using probes.</p>
+<p>ConfiDNS&nbsp;[<a href="#Poole06" class="citation">16</a>] suggests performing
+DNS look-ups from diverse network vantage points. However, the
+primary focus of the ConfiDNS work was dealing with the fact that
+DNS replies (unlike public keys used in <span style="font-variant:small-caps">Perspectives</span>) frequently have
+legitimate inconsistencies due to factors like DNS load-balancing.
+Additionally, because the system was designed to avoid pollution in
+cooperative DNS systems, the design only protects against a
+malicious or failed <em>local</em> DNS server, not an 'on path'
+adversary (e.g., <b><i>L<sub>client</sub></i></b>)
+launching a MitM attack.</p>
+<p>Web tripwires&nbsp;[<a href="#reis08tripwires" class="citation">18</a>] are
+javascript verification functions embedded by a webserver in HTTP
+responses to perform client-side detection of in-flight data
+modification. While lightweight, tripwires are not robust to
+adversaries, which can remove the tripwire code from the HTTP
+response to thwart detection.</p>
+<p>Notary client policies bear some similarity to client behavior
+in the 'web-of-trust' model used by Pretty-Good-Privacy
+(PGP)&nbsp;[<a href="#rfc4880" class="citation">4</a>], a decentralized PKI for
+email. However, because PGP uses human contact to bind entities to
+keys, its primary challenge is estimating the strength of key trust
+chains that include multiple links, each representing a pair of
+real-world acquaintances. <span style="font-variant:small-caps">Perspectives</span> policies do not have
+trust chains (each notary probes a service directly), but do have
+other complexities not seen in PGP, including the temporal nature
+of key histories.</p>
+<p>The concept of building a 'lightweight PKI' based on the normal
+operation of the network was also proposed in the context of
+securing BGP routing. A 'Grassroots PKI'&nbsp;[<a class="citation" href="#Hu:hotnets2006-bgp">26</a>] binds a public key to a prefix of IP
+address space if that key is included in a stable and widely used
+routing announcement for that prefix.</p>
+
+<h2 id="htoc23">10&nbsp;&nbsp;Future Work</h2>
+
+<p>We believe that the network notary concept introduced by
+<span style="font-variant:small-caps">Perspectives</span> opens
+several promising avenues for additional exploration in the area of
+host authentication.<br />
+<b>Notary-Aware Services:</b> <a id="sec:fulldeployment"></a> As presented, <span style="font-variant:small-caps">Perspectives</span> only requires client
+modifications. However, if notaries become common, servers might be
+modified to also communicate with notaries. This would provide
+three primary benefits:</p>
+<ol class="enumerate">
+<li class="li-enumerate"><b>Immediate Probing of New Keys:</b> A
+server could immediately alert notaries when it comes online or
+changes its key, allowing notaries to quickly begin building an
+observation history for the new key.</li>
+<li class="li-enumerate"><b>Reduced Need to Query Notaries:</b> The
+server could act as a caching proxy by querying notaries on behalf
+of clients. This would eliminate privacy issues related to clients
+querying notaries directly and would also allow clients to receive
+cached observed key data even if notaries were temporarily
+unavailable.</li>
+<li class="li-enumerate"><b>Attack Detection:</b> With access to
+the notary infrastructure, a server could request observed key data
+for its own service-id and alert its administrator if the notary
+replies include any illegitimate keys. Such a false key is a likely
+indication that either a network element near the server is
+malicious or that a notary is compromised, thereby aiding attack
+detection.</li>
+</ol>
+<p>Unlike standard PKIs, these changes do not require server owners
+to manually prove their identity to a third-party CA, making them
+simple to adopt.<br />
+<br />
+<b>Applying</b> <b><span style="font-variant:small-caps">Perspectives</span></b> <b>to Additional
+Protocols:</b> <a id="sec:examples"></a>
+<span style="font-variant:small-caps">Perspectives</span> opens the
+door for more widespread use of SSH-style authentication with other
+protocols because, unlike Tofu, use of key-trust policies can
+<em>automatically</em> authenticate keys in a secure fashion, even
+on the first connection to a service.<br />
+<br />
+<b>SMTP:</b> Many SMTP servers already have self-signed SSL
+certificates so that local clients who manually install these
+certificates can authenticate their outgoing mail server. However,
+because no PKI exists for one server to verify another server’s
+certificate, emails are often transmitted 'in-the-clear,' leaving
+them vulnerable to snooping by whomever controls the intermediate
+networks. <span style="font-variant:small-caps">Perspectives</span>
+could support mutual authentication of inter-SMTP server
+communication, allowing, for example, a server to refuse to
+transmit a message the user has deemed 'sensitive' to an
+unauthenticated server.<sup><a href="#note15" class="footnote" id="text15">15</a></sup><br />
+<br />
+<b>Incremental DNSSEC:</b> The deployment of secure DNS (DNSSEC) is
+hampered by the fact that a sub-domain (e.g., example.com) cannot
+protect its hosts until its parent domain (e.g., .com) publishes
+its own public key and signs the sub-domain’s public key.
+Unfortunately, to date, major top-level domains have shown little
+enthusiasm for deploying DNSSEC. With <span style="font-variant:small-caps">Perspectives</span>, the authoritative
+nameserver for any sub-domain could publish an un-signed key used
+to sign its zone, with resolving name servers using notaries to
+validate key prior to caching.</p>
+
+<h2 id="htoc24">11&nbsp;&nbsp;Conclusion</h2>
+
+<p><a id="sec:concl"></a><a id="sec:conclusion"></a></p>
+<p>As evidenced by its widespread use, SSH-style host
+authentication offers a simple and attractive alternative to a
+heavyweight PKI. Unfortunately, 'Trust-on-first-use' leaves users
+vulnerable to simple MitM attacks, limiting the effectiveness of
+current Tofu applications and preventing other protocols from being
+able to take advantage of lightweight SSH-style host
+authentication. To enhance security without requiring a PKI, we
+designed <span style="font-variant:small-caps">Perspectives</span>
+to supplement Tofu-based applications with spatial and temporal
+redundancy. Our implementation demonstrates that the notary concept
+is practical, and after using our <span style="font-variant:small-caps">Perspectives</span> clients for nearly a
+year, we have found them invaluable at several occasions: when
+logging in to a new server while connecting through a public
+wireless network, or when connecting to a known server after a
+server key change. As a result, we believe that <span style="font-variant:small-caps">Perspectives</span> is a practical
+approach to improving the security of users communicating with SSH
+and self-signed HTTPS.</p>
+
+<h2>Acknowledgments</h2>
+
+<p>Dan Wendlandt was supported by a graduate fellowship from the
+Dept. of Homeland Security and an award from the ARCS Foundation.
+This research was supported in part by CyLab at Carnegie Mellon
+under grant DAAD19-02-1-0389 from the Army Research Office, grants
+CCF-0424422 and CNS-0716278 from the National Science Foundation,
+and a Sloan Foundation faculty fellowship. The views contained here
+are those of the authors and do not necessarily represent the
+official policies or endorsements of ARO, CMU, NSF, or the
+U.S.&nbsp;Government. We thank Bryan Parno, Himabindu Pucha, and
+our many reviewers for useful comments. Special thanks to Ramu
+Panayappan for developing the Perspectives extension for
+Firefox.</p>
+
+<h2 id="SECTIONREF">Bibliography</h2>
+<dl class="refs" id="reflist">
+<dt id="AliS04">1</dt>
+<dd>Y.&nbsp;Ali and S.&nbsp;Smith.<br />
+Flexible and scalable public key security for SSH.<br />
+In <span class="textit">EuroPKI</span>, pages 43-56,
+2004.<br /></dd>
+<dt id="Andersen-ccr2003">2</dt>
+<dd>D.&nbsp;G. Andersen, H.&nbsp;Balakrishnan, M.&nbsp;F. Kaashoek,
+and R.&nbsp;Morris.<br />
+Experience with an Evolving Overlay Network Testbed.<br />
+<span class="textit">ACM Computer Communications Review</span>, 33
+(3): 13-19, July 2003.<br /></dd>
+<dt id="bellare99forwardsecure">3</dt>
+<dd>M.&nbsp;Bellare and S.&nbsp;K. Miner.<br />
+A forward-secure digital signature scheme.<br />
+<span class="textit">Lecture Notes in Computer Science</span>,
+1666: 431-448, 1999.<br /></dd>
+<dt id="rfc4880">4</dt>
+<dd>J.&nbsp;Callas, L.&nbsp;Donnerhacke, H.&nbsp;Finney,
+D.&nbsp;Shaw, and R.&nbsp;Thayer.<br />
+<span class="textit">OpenPGP Message Format</span>.<br />
+Internet Engineering Task Force, Nov. 2007.<br />
+RFC 4880.<br /></dd>
+<dt id="rfc2527">5</dt>
+<dd>S.&nbsp;Chokhani and W.&nbsp;Ford.<br />
+<span class="textit">Internet X.509 Public Key Infrastructure
+Certificate Policy and Certification Practices
+Framework</span>.<br />
+Internet Engineering Task Force, 1999.<br />
+RFC 2527.<br /></dd>
+<dt id="domainkeys04">6</dt>
+<dd>M.&nbsp;Delany.<br />
+<span class="textit">Domain-based Email Authentication Using Public
+Keys Advertised in the DNS (DomainKeys)</span>, Aug.
+2004.<br /></dd>
+<dt id="DiOoWi92">7</dt>
+<dd>W.&nbsp;Diffie, P.&nbsp;C. van Oorschot, and M.&nbsp;J.
+Wiener.<br />
+Authentication and authenticated key exchanges.<br />
+<span class="textit">Designs, Codes and Cryptography</span>, pages
+107-125, 1992.<br /></dd>
+<dt id="Dingledine2004">8</dt>
+<dd>R.&nbsp;Dingledine, N.&nbsp;Mathewson, and
+P.&nbsp;Syverson.<br />
+Tor: The second-generation onion router.<br />
+In <span class="textit">Proc. 13th USENIX Security
+Symposium</span>, Aug. 2004.<br /></dd>
+<dt id="egelman08phishing">9</dt>
+<dd>S.&nbsp;Egelman, L.&nbsp;F. Cranor, and J.&nbsp;Hong.<br />
+You've been warned: An empirical study of the effectiveness of web
+browser phishing warnings.<br />
+In <span class="textit">Proceedings of the SIGCHI conference on
+Human factors in computing systems (CHI '08)</span>,
+2008.<br /></dd>
+<dt id="freedman04democratizing">10</dt>
+<dd>M.&nbsp;Freedman, E.&nbsp;Freudenthal, and
+D.&nbsp;Mazieres.<br />
+Democratizing content publication with Coral.<br />
+In <span class="textit">Proceedings of the 4th USENIX Symposium on
+Network Systems Design and Implementation (NSDI)</span>,
+2004.<br /></dd>
+<dt id="JueBra99d">11</dt>
+<dd>A.&nbsp;Juels and J.&nbsp;Brainard.<br />
+Client puzzles: A cryptographic countermeasure against connection
+depletion attacks.<br />
+In <span class="textit">Symposium on Network and Distributed
+Systems Security (NDSS '99)</span>, Feb. 1999.<br /></dd>
+<dt id="LenVer2001">12</dt>
+<dd>A.&nbsp;Lenstra and E.&nbsp;Verheul.<br />
+Selecting cryptographic key sizes.<br />
+<span class="textit">Journal of Cryptology</span>, 14 (4): 255-293,
+2001.<br /></dd>
+<dt id="MNSS88">13</dt>
+<dd>S.&nbsp;Miller, B.&nbsp;Neuman, J.&nbsp;Schiller, and
+J.&nbsp;Saltzer.<br />
+Kerberos authentication and authorization system.<br />
+Technical report, MIT, Oct. 1988.<br />
+Project Athena Technical Plan.<br /></dd>
+<dt id="openssh-web">14</dt>
+<dd>OpenSSH.<br />
+http://www.openssh.com.<br /></dd>
+<dt id="Peterson:hotnets02">15</dt>
+<dd>L.&nbsp;Peterson, T.&nbsp;Anderson, D.&nbsp;Culler, and
+T.&nbsp;Roscoe.<br />
+A blueprint for introducing disruptive technology into the
+Internet.<br />
+In <span class="textit">Proc. 1st ACM Workshop on Hot Topics in
+Networks (Hotnets-I)</span>, Oct. 2002.<br /></dd>
+<dt id="Poole06">16</dt>
+<dd>L.&nbsp;Poole and V.&nbsp;S. Pai.<br />
+ConfiDNS: Leveraging scale and history to improve DNS
+security.<br />
+In <span class="textit">Proceedings of Third Workshop on Real,
+Large Distributed Systems (WORLDS 2006)</span>, November
+2006.<br /></dd>
+<dt id="www-ntp-pool">17</dt>
+<dd>pool.ntp.org : the Internet cluster of NTP servers.<br />
+<tt><a href="http://www.pool.ntp.org" id="tex2html25">http://www.pool.ntp.org</a></tt>.<br /></dd>
+<dt id="reis08tripwires">18</dt>
+<dd>C.&nbsp;Reis, S.&nbsp;D. Gribble, T.&nbsp;Kohno, and N.&nbsp;C.
+Weaver.<br />
+Detecting in-flight page changes with web tripwires.<br />
+In <span class="textit">Symposium on Network Systems Design and
+Implementation (NSDI)</span>, 2008.<br /></dd>
+<dt id="schechter07">19</dt>
+<dd>S.&nbsp;E. Schechter, R.&nbsp;Dhamija, A.&nbsp;Ozment, and
+I.&nbsp;Fischer.<br />
+The emperor's new security indicators.<br />
+In <span class="textit">SP '07: Proceedings of the 2007 IEEE
+Symposium on Security and Privacy</span>, 2007.<br /></dd>
+<dt id="rfc4255">20</dt>
+<dd>J.&nbsp;Schlyter and W.&nbsp;Griffin.<br />
+<span class="textit">Using DNS to Securely Publish Secure Shell
+(SSH) Key Fingerprints</span>.<br />
+Internet Engineering Task Force, Jan. 2006.<br />
+RFC 4255.<br /></dd>
+<dt id="pharmingwild08">21</dt>
+<dd>Symantec Security Response Weblog: Drive-by Pharming in the
+Wild.<br />
+<tt><a href="http://www.symantec.com/enterprise/security_response/weblog/2008/01/driveby_pharming_in_the_wild.html" id="tex2html26">http://www.symantec.com/enterprise/security_response/weblog/2008/01/driveby_pharming_in_the_wild.html</a></tt>.<br />
+</dd>
+<dt id="rontestbed-web">22</dt>
+<dd>The RON/IRIS Testbed.<br />
+http://www.datapository.net/tb/.<br /></dd>
+<dt id="tor-hijacks">23</dt>
+<dd>TOR exit-node doing MITM attacks.<br />
+<tt><a href="http://www.teamfurry.com/wordpress/2007/11/20/tor-exit-node-doing-mitm-attacks" id="tex2html27">http://www.teamfurry.com/wordpress/2007/11/20/tor-exit-node-doing-mitm-attacks</a></tt>.<br />
+</dd>
+<dt id="www-traceroute">24</dt>
+<dd>Traceroute.org.<br />
+<tt><a href="http://www.traceroute.org" id="tex2html28">http://www.traceroute.org</a></tt>.<br /></dd>
+<dt id="arpiframe08">25</dt>
+<dd>W32.Arpiframe.<br />
+<tt><a href="http://http://www.symantec.com/business/security_response/writeup.jsp?docid=2007-061222-0609-99" id="tex2html29">http://http://www.symantec.com/business/security_response/writeup.jsp?docid=2007-061222-0609-99</a></tt>.<br />
+</dd>
+<dt id="Hu:hotnets2006-bgp">26</dt>
+<dd>Y-C. Hu, D. McGrew, A. Perrig, B. Weis, and D. Wendlandt.<br />
+(R)Evolutionary bootstrapping of a global PKI for securing
+BGP.<br />
+In <span class="textit">Proc. 5th ACM Workshop on Hot Topics in
+Networks (Hotnets-V)</span>, 2006.<br /></dd>
+</dl>
+
+<hr class="footnoterule" />
+<dl class="footnotes">
+<dt id="note1"><a href="#text1">1</a></dt>
+<dd>Several existing projects have
+successfully used a similar decentralized deployment model,
+including the large collection of publicly available traceroute and
+looking-glass servers&nbsp;[<a href="#www-traceroute" class="citation">24</a>], the
+Tor anonymizing network&nbsp;[<a href="#Dingledine2004" class="citation">8</a>], and
+the NTP Pool’s large set of publicly available network time
+sources[<a href="#www-ntp-pool" class="citation">17</a>].</dd>
+<dt id="note2"><a href="#text2">2</a></dt>
+<dd>A single logical protocol may have
+multiple service-types (e.g., an SSH2 server can have both RSA and
+DSA keys).</dd>
+<dt id="note3"><a href="#text3">3</a></dt>
+<dd>Using the implementation parameters
+described in Section <a href="#sec:implementation">7</a>, a 1460
+byte MTU-sized UDP datagram can hold a notary reply with 44
+key/timespan pairs. If necessary, multiple UDP packets are used for
+large replies to avoid IP fragmentation.</dd>
+<dt id="note4"><a href="#text4">4</a></dt>
+<dd>We intentionally do not require that
+the quorum be comprised of a stable set of notaries over the entire
+duration.</dd>
+<dt id="note5"><a href="#text5">5</a></dt>
+<dd>Client consistency checks are
+specifically designed so that a malicious notary does not benefit
+by failing to keep its shadows up to date.</dd>
+<dt id="note6"><a href="#text6">6</a></dt>
+<dd>Additionally, to simplify our analysis,
+we assume a sufficiently large number of notary servers such that
+no overlap exists among the q notary servers and the q · r shadow
+servers used by a client. A set of notaries that is too small to
+satisfy this assumption would reduce the number of compromised
+notaries needed to undermine data redundancy.</dd>
+<dt id="note7"><a href="#text7">7</a></dt>
+<dd>We note that this is a worst-case
+analysis. If the client selects notaries randomly and the total
+number of available notaries is larger than (n + n · r), the
+attacker cannot easily predict which notaries or shadows it must
+compromise in order to mislead the client.</dd>
+<dt id="note8"><a href="#text8">8</a></dt>
+<dd>Notary signatures covering observed key
+data do not need long-term security, as signatures are recomputed
+frequently and notary keys are easily updated. 1369-bit RSA is
+deemed secure through 2010[<a href="#LenVer2001" class="citation">12</a>]. Only
+<i>K</i><sub><i>Authority</i></sub> needs long-term security (e.g.,
+2048 bits) to enable key rollover.</dd>
+<dt id="note9"><a href="#text9">9</a></dt>
+<dd>While MD5 collision resistance has been
+compromised, the security of public key fingerprints depends
+instead on second pre-image collision resistance, which is still
+considered secure for MD5.</dd>
+<dt id="note10"><a href="#text10">10</a></dt>
+<dd>OpenSSH’s <em>key-scan</em> utility
+served as our initial SSH scanner, but it exhibited bugs that
+caused us to discontinue its use.</dd>
+<dt id="note11"><a href="#text11">11</a></dt>
+<dd>This disk-bound query-handling does not
+significantly contend with the CPU-bound service monitoring,
+meaning that their respective rates are unlikely to diminish
+significantly when both are run simultaneously.</dd>
+<dt id="note12"><a href="#text12">12</a></dt>
+<dd>Adding IP addresses to the observed key
+data returned by a notary also helps clients handle cases when
+DNS-based load-balancing maps a single hostname to different
+machines that each have their own key.</dd>
+<dt id="note13"><a href="#text13">13</a></dt>
+<dd>A similar DNS trick is used by the
+popular Coral Cache content distribution network&nbsp;[<a href="#freedman04democratizing">10</a>]. Using a TTL of 0 and appending
+random data to the beginning of the DNS name can prevent DNS
+caching from providing stale data.</dd>
+<dt id="note14"><a href="#text14">14</a></dt>
+<dd>To accommodate legitimate key turnover,
+the site owner can sign the new public key using the older key that
+is already recognized as valid by the notaries.</dd>
+<dt id="note15"><a href="#text15">15</a></dt>
+<dd>DomainKeys&nbsp;[<a href="#domainkeys04">6</a>] could also benefit from <span style="font-variant:small-caps">Perspectives</span>, as keys are
+currently acquired using unauthenticated DNS look-ups.</dd>
+</dl>
+
+
+
+
+
+
+
+</body>
+</html>

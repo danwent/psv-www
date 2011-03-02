@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html 
+ PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<link rel="stylesheet" type="text/css" href="style.css" />
+<title> 
+Perspectives : Firefox Extension  
+</title>
+</head>
+
+<body>
+<center>
+<table width="100%"> 
+<tr> 
+<td width="25%"> <a href="/">
+<div class="quick_link"> Perspectives Home </div></a> </td>
+<td width="25%">
+<div class="quick_link"> Firefox Extension </div> </td>
+<td width="25%"> <a href="/notary_web/notary_query">
+<div class="quick_link"> Web Demo </div></a> </td>
+</tr>
+</table> 
+
+<br/> 
+<img src="firefox.png" height="128" width="128"/> 
+</h4> 
+</center>
+ 
+<h1 style="text-align:center;">
+Perspectives : Mozilla Firefox Extension 
+</h1>
+
+<p><span style="color: #f00">Update 1-30-2011:</span> 
+A new version of the Perspectives notary server is available (written totally in python).  
+<a href="http://www.github.com/danwent/Perspectives-Server"> Check it out! </a> . 
+</p> 
+<p><span style="color: #f00">Update 1-30-2011:</span> A proof-of-concept Chrome extension
+for Perspectives is <a href="https://chrome.google.com/webstore/detail/lnppfgdnjafeikakadfopejdpglpiahn"> available</a> (Warning: for experimental use only, Chrome development help is welcomed) 
+</p> 
+<p><span style="color: #f00">Update 11-7-2010:</span> Version 4.0 of the Perspectives Extension is available: <a href="https://addons.mozilla.org/firefox/addon/7974/">Install Now</a>.  See <a href="https://github.com/danwent/Perspectives/wiki/">our wiki</a> to learn what is new and how you can help.
+</p>
+<h2> Overview </h2> 
+<p> We have developed an extension to the popular Firefox browser that 
+contacts network notaries whenever your browser connects an HTTPS website.  
+<p> For an overview of how Perspectives works, see our <a href="index.html"> main page </a>. 
+<p>The extension provides two primary benefits: </p>
+<ol> 
+<li> If you connect to a website with an untrusted (e.g.,self-signed certificate)*, Firefox 
+will give you a very nasty security error and force you to manually install
+an exception.  Perspectives can detect whether a self-signed 
+certificate is valid, and <b> automatically overrides the annoying 
+security error page </b> if it is safe to do so. </li> 
+<li> It is possible that an attacker may trick one of the many Certificate
+Authorities trusted by Firefox into incorrectly issuing a certificate for a
+trusted website.  Perspectives can also detect this attack and will warn
+you if things look suspicious.  
+</li> 
+</ol> 
+<p> * The same is true for HTTPS sites with certificates that contain
+mismatched domain names (e.g., www.gmail.com uses a certificate for 
+mail.google.com) or certificates that are expired.</p>  
+
+<a name="install" /> 
+<h2> Installation </h2>
+<p> Note: All software on this page is provided "as-is", without warranty of 
+any kind.  In no event shall the authors or Carnegie Mellon be liable for
+any claim arising from use of this software. </p> 
+ <center> <a href="https://addons.mozilla.org/firefox/addon/7974/"> Install Perspectives</a> </center> 
+ </p> 
+ <ul>
+ <li> See the list of all <a href="#knownissues"> known issues </a> below. 
+ </li> 
+ <li> By default Firefox blocks installation with a warning at the 
+      top of your window.  You must override that warning.  </li> 
+ <li> This extension works only with <a href="http://www.getfirefox.com">
+      Firefox 3.0 </a> or newer.  </li>
+ <li>The source code is <a href="#source">freely available</a>. </li>
+ </ul> 
+  
+<h2> Using the Extension </h2> 
+<p> 
+The easiest way to see what the notary client extension is doing is to use the
+info box it places in the lower right-hand corner of the browser window.  The
+icon tells you whether the certificate has been notarized, and you can request
+to see the details of each server response. Double-clicking on this info 
+box provides more detailed notary data and opens the preferences menu.
+</p>
+<p>
+By default, Perspectives only queries for self-signed certificate or certificates
+deemed invalid by Firefox.  To experiment more with Perspectives, you can change 
+your preferences to query for all HTTPS connections.  
+Preferences also 
+let you control a security level that determines the criteria used by 
+Perspectives to deem a certificate valid or invalid.  
+</p>
+<p>
+Once Perspectives has used notary data to deem a certificate valid,
+that certificate is cached locally as "trusted". You can configured 
+Perspectives to cache these certificates either permanently or just for
+the current instance of the browser (default).  
+</p>
+<p> 
+Perspectives uses automatic updates to help push bug fixes, feature 
+enhancements, and new notary configuration data.  If you experience problems,
+please make sure you have the latest version by going to Tool &gt; Add-ons,
+clicking "Find Updates", and installing the update if one is available. 
+</p> 
+<p> See the Perspectives Firefox <a href="firefox_help.html">Help Page </a></p>
+<a name="knownissues" /> 
+<h2> Known Issues: </h2> 
+<ol> 
+<li> If your local network uses a <b>proxy or firewall</b> to access the Internet, 
+it may prevent Perspectives from reaching notaries.  As a result, all sites will
+fail verification (<a href="index.html#firewall">more details</a>).  </li>
+<a name="nossl" /> 
+<li> If going to a website with a self signed certificate causes a small error dialog to pop-up
+in front of a blank page, instead of showing a full error page, Firefox may be misconfigured 
+in a way that prevents Perspectives from working.  To check, type "about:config" (no quotes)
+into the browser URL bar.  Click past Firefox's warning, and then type 'browser.xul.error_pages.enabled'
+in the 'Filter' textbox at the top of the page.  If the 'Value' column shows 'false' for this 
+setting, double click the text 'false' to change it to 'true'.  'true' is the default setting for 
+Firefox 3, but some users have reported that their browser was set incorrectly.  
+</li> 
+</ul> 
+<li> Firefox extension APIs changed significantly between Firefox 2
+and Firefox 3.  The current code works ONLY with Firefox 3.  The Firefox 2 code
+is no longer supported. </li> 
+<li> Our code to override the Firefox security warning page for self-signed,
+mismatched, and expired certs is not perfect.  Sometimes you will see the 
+warning flash before our code overrides it.  </li> 
+</ol> 
+
+<a name="source"/> 
+<h2> Source </h2> 
+
+<p> The Perspectives Firefox Extension code is now available on GitHub: 
+<ul> 
+<li> <a href="http://github.com/danwent/Perspectives"> Perspectives GitHub Home </a></li>  
+<li> <a href="http://github.com/danwent/Perspectives/archives/master"> Download Latest Source </a> (may be unstable) </li> 
+<li> <a href="http://github.com/danwent/Perspectives/downloads"> Development / Beta Builds </a> (may be unstable) </li> 
+</ul> 
+
+<p> Now that Perspectives is written completely in javascript, it should be 
+easy to play with the source code yourself.  The source code contains 
+all required source, images, etc and includes a simple Makefile to package
+an XPI file.  We welcome contributions, just send us a patch!
+
+</body>
+</html>
+
+

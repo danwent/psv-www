@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html 
+ PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<link rel="stylesheet" type="text/css" href="style.css" />
+
+<title> 
+Perspectives : Improving SSH-style Host Authentication with Multi-path
+Network Probing 
+</title>
+</head>
+
+<body>
+<center>
+<table width="100%"> 
+<tr> 
+<td width="25%"> 
+<div class="quick_link"> Perspectives Home </div> </td>
+<td width="25%"> <a href="/firefox.html">
+<div class="quick_link"> Firefox Extension </div></a> </td>
+<td width="25%"> <a href="/notary_web/notary_query">
+<div class="quick_link"> Web Demo </div></a> </td>
+</tr>
+</table> 
+</center>
+<br/>
+<h1 style="text-align:center;"> 
+Perspectives : Improving SSH-style Host <br/> 
+Authentication with Multi-path Network Probing 
+</h1>
+<p class="headp"> Students: 
+<a href="http://www.cs.cmu.edu/~dwendlan/"> Dan Wendlandt </a>, 
+<a href="http://wiki.volution.ro/CiprianDorinCraciun"> Ciprian Craciun </a> , and
+<a href="http://www.linkedin.com/in/dineshisrani"> Dinesh Israni </a> 
+</p> 
+<p class="headp">Contact Email: 
+( 
+pers<a href="http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=" onclick="window.open('http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=', '', 'toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=500,height=300'); return false;" title="Reveal this e-mail address">...</a>@cs.cmu.edu 
+) </p> 
+<p class="headp">Advisers: 
+<a href="http://www.cs.cmu.edu/~dga/">Dave Andersen </a> 
+and 
+<a href="http://www.ece.cmu.edu/~adrian/"> Adrian Perrig </a> </p> 
+<p class="headp"> 
+This research has been supported by NSF and Cylab:<br/> 
+<a href="http://www.nsf.gov"><img width="55" height="55" src="nsfe.gif"/></a> 
+<a href="http://www.cylab.cmu.edu"><img src="sm_cylab_logo.jpg"/></a> 
+</p>
+</td>
+</tr>
+</table> 
+<br/>
+</td> 
+<td width="40%"> 
+
+<p><span style="color: #f00">Update 1-30-2011:</span> 
+A new version of the Perspectives notary server is available (written totally in python).  
+<a href="http://www.github.com/danwent/Perspectives-Server"> Check it out! </a> . 
+</p> 
+<p><span style="color: #f00">Update 1-30-2011:</span> A proof-of-concept Chrome extension
+for Perspectives is <a href="https://chrome.google.com/webstore/detail/lnppfgdnjafeikakadfopejdpglpiahn"> available</a> (Warning: for experimental use only, Chrome development help is welcomed) 
+</p> 
+<p><span style="color: #f00">Update 11-7-2010:</span> Version 4.0 of the Perspectives Extension is available: <a href="https://addons.mozilla.org/firefox/addon/7974/">Install Now</a>.  See <a href="https://github.com/danwent/Perspectives/wiki/">our wiki</a> to learn what is new and how you can help.
+</p>
+
+<h2> Summary: </h2> 
+<p>
+Perspectives is a new approach to help clients securely identify Internet servers in 
+order to avoid "man-in-the-middle" attacks.  
+Perspectives is simple and cheap compared to existing approaches
+because it automatically builds a robust database of network identities using lightweight network probing
+by "network notaries" located in multiple vantage points across the Internet.  
+</p>
+<p> 
+<b>Contribute:</b> If you would like to contribute to this project 
+by writing code,
+running a notary, designing GUI's, or writing documentation please email us.
+</p>
+<p>
+<b> Other languages:</b> <a href="translations/chinese">Chinese</a>, <a href="http://www.fatcow.com/edu/perspectives-be-be/">Belorussian</a>. (note: translated pages are created by 3rd parties and may be incorrect or out-of-date)  
+</p> 
+<h2> Description: </h2>
+
+<p>
+When you use a "secure" protocol like SSL or SSH to communicate on the Internet, 
+your communication is vulnerable to a "man-in-the-middle" attack unless you
+are able to identify the remote server in a secure manner.  One way to do this is to 
+have the server participate in a "Public Key Infrastructure" (PKI) and buy a
+certificate from a certificate authority like VeriSign.  
+</p>
+<p>Unfortunately, PKI's can be expensive and cumbersome to operate, leading
+to widespread use of a simple and cheap "Trust-on-first-use" mechanism commonly associated 
+with SSH and HTTPS with self-signed certificates.  Unfortunately, this comes at the cost
+of security. 
+For example, here are some familiar warnings from OpenSSH and Firefox: 
+</p>
+<table> 
+<tr>
+<td>
+<pre>
+
+The authenticity of host 'host.domain.com (192.168.74.49)' 
+can't be established.  RSA key fingerprint is 
+07:fd:fb:9b:03:a2:b4:e8:b3:c9:0f:0b:db:43:1c:1a.
+Are you sure you want to continue connecting (yes/no)?
+
+</pre>
+<p>  </p>
+<pre>
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now 
+(man-in-the-middle attack)!  It is also possible that the 
+DSA host key has just been changed.  The fingerprint for 
+the DSA key sent by the remote host is
+4c:68:03:d4:5c:58:a6:1d:bd:17:13:84:14:48:ba:99.
+Please contact your system administrator.
+
+</pre>
+</td>
+<td> 
+<img src="images/https_untrustedroot_small.png" height="300" width="412" alt="small screenshot of firefox error page for an untrusted certificate" />
+</td> 
+</tr>
+</table> 
+
+<p>
+Few users bother to verify the correctness of the key manually (hey, we're 
+lazy by nature!), but Perspectives provides a simple "no effort" way to get
+significantly more information about whether a key is correct for that 
+destination.  A client can automatically make a secure connection to 
+one of several publicly available "network notary servers" located around the world.  
+These servers tell the client:
+</p>
+<ol>
+<li> What key does the server see for host.domain.com right now? </li>
+<li> What keys has the server seen in the past for host.domain.com ? </li>
+</ol>
+<p>
+The replies from the network notaries can go a long way toward either providing the 
+user with confidence that the key it received is valid, or
+that a real threat of a "man in the middle" attack exists.  
+</p>
+<p>
+The end result is that instead of having applications issue bland warnings, which users often ignore,
+the application can either skip the warning if notary data indicates the the key is valid,
+or give a very stern warning in the rare cases when an attack appears to be in progress.  
+</p>
+<p> 
+This same approach can also be used as a second layer of protection to validate
+a website certificates that your browser trusts  because they appear to be signed
+by a valid Certificate Authority (CA).  Perspectives could detect that a certificate
+was in fact signed by a malicious CA, since it would identify that the CA-signed
+certificate is different from the certificate currently in use at the website.
+</p> 
+<h2> Try it Out </h2> 
+<p>
+We have a network notary implementation actively running on the 
+<a href="http://www.datapository.net/tb/"> RON/IRIS Testbed </a>.  
+</p>
+<p> To try it out you can: 
+<ul> 
+<li> Query the notary servers in real-time using our 
+<a href="https://www.networknotary.org"> Notary Web Interface 
+</a> </li>
+<li> Use our <a href="firefox.html"> Firefox extension </a> to verify untrusted HTTPS certificates 
+and to double-check certificates already trusted by your browser. </li> 
+</p> 
+</ul> 
+
+<h2> Perspectives &amp; Privacy </h2> 
+
+<p> <b> Notary Server Privacy Policy: </b>  All notary servers adhere to a strict 
+policy of <b> never recording client IP addresses, period</b>.  
+The Perspectives project and its software will only contact Notary servers
+that follow this privacy policy.  Your privacy is important to us.
+</p> 
+<p> Both the Firefox and OpenSSH clients let you configure the scenarios
+when the client should contact Notaries.  In fact, you can set the preferences of the Firefox client
+to ask permission each time before contacting notaries.  We plan to improve
+these privacy features in the future and welcome suggestions. 
+</p> 
+<h2> Perspectives Notary Server  </h2> 
+
+<p> Our research group operates a set of four publicly available notary server 
+using the <a href="http://www.datapository.net/tb/"> RON/IRIS Testbed </a>. 
+The current <a href="http_notary_list.txt"> http_notary_list.txt </a> describes the actively
+running notaries and their public keys.  The Firefox client is configured to use 
+these notaries by default. </p>
+<p> 
+
+<p> It is quite easy to run your own notary if you have a Unix-based server.  You can access the source
+code and install instructions at github:</p>
+<p> <a href="http://www.github.com/danwent/Perspectives-Server"> Perspectives-Server </a> 
+</p> 
+<p> We welcome contributions to fix bugs or add new functionality. </p> 
+<p> An older version of the server code (cited in our  <a href="perspectives_usenix08.pdf"> paper</a>) is still 
+available at gitorious: <a href="http://gitorious.org/perspectives-notary-server"> perspectives-notary-server </a>.  
+</p> 
+
+
+<p>Building the software requires cmake and is documented
+in the README file. </p>
+
+<h2> Publications: </h2>
+
+<p>We recently presented '<i>Perspectives:</i> Improving SSH-style Host 
+Authentication with Multi-Path Probing' at Usenix ATC 2008.</p>
+<p> 
+Paper: <a href="perspectives_usenix08.pdf">[PDF]</a>  
+<a href="http://www.usenix.org/event/usenix08/tech/full_papers/wendlandt/wendlandt_html/index.html"> [HTML] </a> <a href="bib.txt"> [BIBTEX] </a> 
+</p> 
+<p>Usenix Presentation Slides <a href="perspectives_usenix.ppt"> [PPT]</a> </p>
+<p>Nanog Presentation Slides <a href="perspectives_nanog.ppt"> [PPT]</a> </p>
+<h2> Frequently Asked Questions: </h2> 
+<p><b>Q:</b> Is my computer insecure if I do not install Perspectives?
+</p>
+<p><b>A:</b> No, you will be safe if you simply go along with Firefox's default 
+suggestion and refuse to connection to any websites that show Security Errors. 
+Perspectives aims to make a better trade-off between security 
+and useability with respect to these Security Errors by distinguishing between the
+frequent false positives and the rare (but serious) attack scenarios.  
+If you aren't familiar enough with Internet security to know the difference
+between a certificate signed by a Certificate Authority and a self-signed 
+certificate, Perspectives may not be a good match for you.  Hopefully in the 
+future we will be able to work with browser makers like Mozilla and Microsoft
+to integrate Perspectives-like functionality into the normal browser experience.
+</p><p>
+<p><b>Q:</b> But what if an attacker takes over all paths to the destination?
+</p>
+<p><b>A:</b> There are two answers to that.  
+Please see our <a href="perspectives_usenix08.pdf"> 
+academic paper </a> for a detailed security analysis.
+</p><p>
+ 1) Perspectives actually keeps a record of the keys used by a service
+ over time.  Thus, even if a powerful adversary is able to take over
+ the whole Internet (scenario L_server in the paper), clients can still
+ detect the key as suspicious because the key has recently changed.  If
+ the attacker is able to compromise all paths for a long time, then you
+ are in trouble, but then again such a powerful adversary could also fool
+ the so-called "verification procedures" of many certificate
+ authorities, which often consist of a one-time email verification.
+</p><p>
+ 2) Even though a powerful adversary can defeat the system, it makes
+ man-in-the-middle attacks much harder.  Today an attacker must only be
+ on the path between you and the destination, which isn't very hard.
+ Think about an open wireless network, or the recent DNS attacks which
+ compromise a targeted DNS resolver.  Being on all links is much
+ harder, and in the end security is nothing but making an attack
+ harder.
+
+</p>
+<p><b>Q:</b> Does Perspectives prevent ''phishing'' attacks, when the user
+clicks on a link for or is otherwise directed to a DNS address other than the
+one they intended to reach?</p> 
+<p><b>A:</b> No.  Perspectives extends your browser's basic SSL authentication
+mechinisms, which validate that the browser is securely communicating with the
+server identified in the URL bar. It cannot tell you if that URL is trustworthy
+or not.  For example, if you click on an email with the link
+https://www.good.com.evil.com/login it will not detect that that this website
+may be posing as good.com.  You must enter in https://www.good.com/login in order
+to be protected.  </p> 
+<a name="firewall"/>
+<p><b>Q:</b> I get a red icon and a message that perspectives failed 
+every time the extension contacts notaries. What is going on??
+</p>
+<p><b>A:</b> The most likely cause is that you are accessing the Internet
+through a proxy or firewall that is preventing Perspectives from reaching
+the notaries. Currently, we query notaries over HTTP using either port 80
+or port 8080.  
+</p> 
+<p><b>Q:</b> What about services in "private" (RFC 1918) space?
+</p>
+<p><b>A:</b> Unfortunately, we can't do much to monitor the keys used
+by these services, since our notary servers cannot reach them.  Sorry.</p>
+<p><b>Q:</b> How do the recently announced 
+<a href="http://www.win.tue.nl/hashclash/rogue-ca/"> 
+MD5 attack on SSL certificates </a> affect Perspectives?</p>
+<p><b>A:</b> The good news is that
+using Perspectives to check all SSL certificates can help detect such attacks.
+Also, the MD5 weaknesses described in the paper do not compromise the security
+of Perspectives.  See our <a href="md5.html" >md5 page</a> for details.  
+</p>
+<p><b>Q:</b> I visited a website that uses a blacklisted debian certificate 
+( <a href="http://security-tracker.debian.org/tracker/CVE-2008-0166"> more info </a> ) 
+but Perspectives said it was secure, what gives? 
+<p><b>A:</b> 
+Detecting such certificates is not the goal of
+Perspectives (there are already other fine extensions like 
+<a href="http://codefromthe70s.org/sslblacklist.aspx">SSLBlacklist</a> that 
+can help you).  Perspectives plays a role that is similar to a
+certificate authority: avoiding man-in-the-middle attacks by
+attempting to determine if an SSL certificate (i.e., a public key)
+received by the browser is the actual certificate in use by the
+visited website.   Perspectives does not do anything to protect you
+against a poorly run website where the administrator uses an insecure
+key pair (in the limit, the website admin could publish the private
+key, totally undermining security).  
+</p>
+
+
+<h2> Contact / Update :  </h2>
+<p>
+If you have questions, comments, or are interested in contributing by testing
+releases, writing
+code, or running a notary server, please click on the following link to reveal
+our contact email address: 
+pers<a href="http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=" onclick="window.open('http://mailhide.recaptcha.net/d?k=01SkoHYd2Oha_YgwgpCINDhw==&amp;c=6dZJbq8y337WbUluppVw3KVnGOe7lS46XQv9utvr1Wc=', '', 'toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=500,height=300'); return false;" title="Reveal this e-mail address">...</a>@cs.cmu.edu .</p>
+<p> <b> Bug Reports: </b> </p> 
+We welcome bug reports and feature requests for our software.  If you are 
+reporting a bug, please report the version of the software used, your 
+platform (OS, distro, and browser if relevant), and the exact circumstances
+needed to reproduce the bug.  We will do our best to work with you and resolve
+the issue. </p> 
+<p>   
+If you download our software or are interested in when new versions will become
+available, please register for our LOW-VOLUME 
+<a href="https://mailman.srv.cs.cmu.edu/mailman/listinfo/perspectives-announce"> perspectives-announce
+</a> email list.  With the possible exception of critical security issues, we
+will not send out more than one email per month.  
+</p> 
+
+</body>
+</html>
+
+

@@ -1,0 +1,9 @@
+@InProceedings{WeAnPe2008,
+  author =  {Dan Wendlandt and David G. Andersen and Adrian Perrig},
+  title =   {Perspectives: Improving SSH-style Host Authentication with
+  Multi-Path Probing },
+  booktitle = {Proceedings of the USENIX Annual Technical Conference (Usenix ATC)},
+  year =      2008,
+  month =     jun
+}
+          

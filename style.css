@@ -1,0 +1,19 @@
+pre { background:lightgrey; font-size:10px; }
+h2 { 
+  font-size: 125%;
+  color: white; 
+  background-color: #669966 
+}
+body { margin-left: 100px;
+ margin-right: 100px;
+}
+
+p.headp {
+  text-align: center;
+}
+
+.quick_link { 
+  text-align: center; 
+  color: white; 
+  background-color: #669966 
+} 
